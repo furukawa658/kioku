@@ -26,6 +26,7 @@ import type { SpooledDeliverablesPayload } from '../../../shared/hook-spool.js';
 import { isInsideDeliverablesDir, resolveDeliverablesDir } from '../../../shared/deliverables.js';
 import { isPrivatePrompt } from '../../../shared/deliverables-transcript.js';
 import { statSync } from 'fs';
+import { buildRuleBasedObservation } from './rule-based-observation.js';
 import { isExpiredObserverEvent } from '../../../shared/observer-work-policy.js';
 
 export interface IngestContext {
@@ -151,8 +152,6 @@ export function logDeletedSessionSkip(
 export interface ObservationPayload {
   contentSessionId: string;
   toolName: string;
-  /** Host spelling before semantic normalization, used only for exclusion matching. */
-  nativeToolName?: string;
   toolInput?: unknown;
   toolResponse?: unknown;
   cwd?: string;
@@ -234,7 +233,7 @@ export async function ingestObservation(payload: ObservationPayload, handoff: In
 
   const filterToolName = platformSource === 'hermes'
     ? HERMES_FILTER_TOOL_NAMES.get(payload.toolName) ?? payload.toolName : payload.toolName;
-  if (isToolSkipped(payload.toolName, settings.CLAUDE_MEM_SKIP_TOOLS, payload.nativeToolName)
+  if (isToolSkipped(payload.toolName, settings.CLAUDE_MEM_SKIP_TOOLS)
     || isToolSkipped(filterToolName, settings.CLAUDE_MEM_SKIP_TOOLS)) {
     if (payload.toolName === 'Skill') {
       const { skill_id, skill_source } = classifySkillId(
@@ -320,6 +319,25 @@ export async function ingestObservation(payload: ObservationPayload, handoff: In
 
   if (!trackedTool && privacy.prompt.trim() && isPublicWorkStateTurn(store.db, telemetryAttribution)) {
     recordWorkStateTool(store.db, telemetryAttribution, payload.toolUseId, payload.toolName, payload.toolResponse);
+  }
+
+  // LLMを使わず保存する経路。対象外や失敗した操作は従来のobserver経路へ進む。
+  if (settings.CLAUDE_MEM_RULE_BASED_OBSERVATIONS === 'true') {
+    const ruleObs = buildRuleBasedObservation(filterToolName, payload.toolInput, payload.toolResponse);
+    if (ruleObs) {
+      try {
+        const memorySessionId = store.getOrCreateManualSession(project, platformSource);
+        store.storeObservation(memorySessionId, project, {
+          type: ruleObs.type, title: ruleObs.title, subtitle: ruleObs.subtitle,
+          facts: [], narrative: ruleObs.narrative, concepts: ['rule-based'],
+          files_read: [], files_modified: ruleObs.files_modified,
+          metadata: JSON.stringify({ source: 'rule-based', toolName: payload.toolName }),
+        }, promptNumber, 0);
+        return { ok: true, status: 'skipped', reason: 'rule_based_stored' };
+      } catch (error) {
+        logger.warn('INGEST', 'Rule-based store failed; falling back to observer', { toolName: payload.toolName }, error instanceof Error ? error : undefined);
+      }
+    }
   }
 
   // Media capture runs only after every tracking/privacy/subagent gate above

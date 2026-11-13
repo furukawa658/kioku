@@ -34,7 +34,6 @@ import { HookSpoolRoutes } from './worker/http/routes/HookSpoolRoutes.js';
 import { HOOK_TIMEOUTS } from '../shared/hook-constants.js';
 import { getUptimeSeconds } from '../shared/uptime.js';
 import { SettingsDefaultsManager } from '../shared/SettingsDefaultsManager.js';
-import { readLocalApiToken } from '../shared/hook-settings.js';
 import { describeObserverAuthMethod } from './worker/observer-auth-method.js';
 import { logger } from '../utils/logger.js';
 import { isHookStdoutClosed } from '../shared/hook-io.js';
@@ -129,7 +128,7 @@ import { runProjectMergeCommand } from './infrastructure/ProjectMerge.js';
 
 import { Server } from './server/Server.js';
 import { InitPhaseTracker } from './server/init-phase.js';
-import { buildWorkerOriginPolicy, uiStaticPaths } from './worker/http/middleware.js';
+import { buildWorkerOriginPolicy } from './worker/http/middleware.js';
 import { BetterAuthRoutes } from '../server/auth/BetterAuthRoutes.js';
 import {
   createServerApiKey,
@@ -153,7 +152,6 @@ import {
   handleAntigravityCliCommand,
   healStaleAntigravityHooksConfig
 } from './integrations/AntigravityCliHooksInstaller.js';
-import { handleGeminiCommand } from './integrations/GeminiHooksInstaller.js';
 import { notifyGrokBotIndex, watchGrokBotIndexChanges, stopGrokBotIndexChanges } from './integrations/GrokBotIndexWriter.js';
 
 import { DatabaseManager } from './worker/DatabaseManager.js';
@@ -220,7 +218,7 @@ import { applyPendingRestore } from './backup/restore-swap.js';
 
 import { CorpusStore } from './worker/knowledge/CorpusStore.js';
 import { CorpusBuilder } from './worker/knowledge/CorpusBuilder.js';
-import { createCorpusAgent } from './worker/knowledge/CorpusAgent.js';
+import { KnowledgeAgent } from './worker/knowledge/KnowledgeAgent.js';
 import { cliFlagValue } from '../shared/cli-flag-value.js';
 
 export interface StatusOutput {
@@ -444,9 +442,6 @@ export class WorkerService implements WorkerRef {
     const workerSettings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
     const tvToken = (workerSettings.CLAUDE_MEM_TV_TOKEN ?? '').trim();
     this.tvToken = tvToken;
-    // Local API token (#5141): file-only, so the environment cannot switch the mode.
-    // Read once at boot; restart to change.
-    const localApiToken = readLocalApiToken();
 
     this.server = new Server({
       getInitializationComplete: () => this.initializationCompleteFlag,
@@ -477,7 +472,6 @@ export class WorkerService implements WorkerRef {
         new BetterAuthRoutes(() => this.dbManager.getConnection()),
       ],
       ...(tvToken ? { remoteReadOnly: { getToken: () => tvToken } } : {}),
-      ...(localApiToken ? { localApiToken: { getToken: () => localApiToken, openStaticPaths: uiStaticPaths() } } : {}),
       // Browser access: same-host and CLAUDE_MEM_ALLOWED_ORIGINS for CORS, plus
       // the DNS-rebinding Host check. Read once at boot; restart to change it.
       originPolicy: buildWorkerOriginPolicy(workerSettings),
@@ -658,9 +652,7 @@ export class WorkerService implements WorkerRef {
    * under the plugin cache and leaves the old ones there (#5681). The
    * installer only prunes when it copies a version itself (#4105), and a
    * worker that stays up never goes through that copy. Sweep once boot has
-   * settled, then hourly. The folder this process is running from is kept,
-   * and so is any folder an open Claude Code session is still loaded from
-   * (#5970).
+   * settled, then hourly. The folder this process is running from is kept.
    */
   private startPluginCachePrune(): void {
     if (this.pluginCachePruneTimer != null || this.isShuttingDown) return;
@@ -1313,11 +1305,8 @@ export class WorkerService implements WorkerRef {
         searchManager.getOrchestrator(),
         this.corpusStore
       );
-      // The corpus agent is the Claude Agent SDK unless CLAUDE_MEM_CORPUS_AGENT
-      // is "api". The setting is read on every call, so this one instance
-      // serves a change without a restart (see knowledge/CorpusAgent.ts).
-      const corpusAgent = await createCorpusAgent(this.corpusStore);
-      this.corpusRoutes = new CorpusRoutes(this.corpusStore, corpusBuilder, corpusAgent);
+      const knowledgeAgent = new KnowledgeAgent(this.corpusStore);
+      this.corpusRoutes = new CorpusRoutes(this.corpusStore, corpusBuilder, knowledgeAgent);
       this.server.registerRoutes(this.corpusRoutes);
       logger.info('WORKER', 'CorpusRoutes registered');
 
@@ -1983,7 +1972,7 @@ export async function main() {
     // exit(0) and no trace — indistinguishable from a crash, and only
     // discoverable by reverse-engineering the bundle. One INFO line turns
     // "memory mysteriously stopped" into an obvious cause.
-    logger.info('SYSTEM', 'Worker not starting: claude-mem is disabled in Claude settings (enabledPlugins["claude-mem@thedotmack"] === false). Re-enable the plugin to resume memory capture.', {
+    logger.info('SYSTEM', 'Worker not starting: claude-mem is disabled in Claude settings (enabledPlugins["kioku@thedotmack"] === false). Re-enable the plugin to resume memory capture.', {
       command: command ?? '(none)',
       configDir: process.env.CLAUDE_CONFIG_DIR || '~/.claude',
     });
@@ -2298,11 +2287,6 @@ export async function main() {
       const subcommand = process.argv[3];
       const memoryResult = await runMemoryCommand(subcommand, process.argv.slice(4));
       process.exit(memoryResult);
-      break;
-    }
-
-    case 'gemini': {
-      process.exit(await handleGeminiCommand(process.argv[3]));
       break;
     }
 

@@ -51,4 +51,26 @@ describe('explicit memory note revisions', () => {
       store.close();
     }
   });
+
+  it('selects lessons by concept and keeps a revised lesson under the same title and text', () => {
+    process.env.CLAUDE_MEM_DEDUP_ENABLED = 'true';
+    const store = new SessionStore(':memory:');
+    const manager = { getSessionStore: () => store, getCloudSync: () => null, getChromaSync: () => null };
+    try {
+      const search = new SessionSearch(store.db);
+      const note = { title: 'Row shift', text: 'Posted drafts were stale.' };
+      const plain = saveMemory(manager as any, 'notes', { text: 'Deploy to staging.' });
+      const first = saveMemory(manager as any, 'notes', { ...note, outcome: 'failure', cause: 'An inserted row.', lesson: 'Check the row count.' });
+      const revised = saveMemory(manager as any, 'notes', { ...note, outcome: 'failure', cause: 'An inserted row.', lesson: 'Re-read the latest file.' });
+      const success = saveMemory(manager as any, 'notes', { text: 'The build passed.', outcome: 'success', lesson: 'Pin the drive letter.' });
+      expect(revised.id).not.toBe(first.id);
+      const ids = (concepts: string[]) => search.searchObservations(undefined, { project: 'notes', concepts, orderBy: 'date_asc' }).map(row => row.id).sort();
+      expect(ids(['lesson'])).toEqual([first.id, revised.id, success.id]);
+      expect(ids(['outcome-failure'])).toEqual([first.id, revised.id]);
+      expect(ids(['lesson'])).not.toContain(plain.id);
+      expect(search.searchObservations('latest', { project: 'notes' }).map(row => row.id)).toEqual([revised.id]);
+    } finally {
+      store.close();
+    }
+  });
 });

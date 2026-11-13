@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <!-- Background radial gradient -->
+    <radialGradient id="bg" cx="50%" cy="37.5%" r="65%">
+      <stop offset="0%" stop-color="#3a0f6b"/>
+      <stop offset="55%" stop-color="#12032e"/>
+      <stop offset="100%" stop-color="#05010f"/>
+    </radialGradient>
+
+    <!-- Brain glow behind hemispheres -->
+    <radialGradient id="glow-grad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff2d95"/>
+      <stop offset="65%" stop-color="#ff8a00"/>
+      <stop offset="100%" stop-color="#ff2d95" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow-blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+
+    <!-- Brainstem gradient -->
+    <linearGradient id="stem-grad" x1="0" y1="190" x2="0" y2="238" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#b14dff"/>
+      <stop offset="100%" stop-color="#ff2d95"/>
+    </linearGradient>
+
+    <!-- Left hemisphere fill: yellow -> orange -> hot pink -->
+    <linearGradient id="left-hemi" x1="0" y1="22" x2="0" y2="198" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffe14d"/>
+      <stop offset="50%" stop-color="#ff8a00"/>
+      <stop offset="100%" stop-color="#ff2d95"/>
+    </linearGradient>
+
+    <!-- Right hemisphere fill: cyan -> blue -> purple -->
+    <linearGradient id="right-hemi" x1="0" y1="22" x2="0" y2="198" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00f0ff"/>
+      <stop offset="50%" stop-color="#4d7cff"/>
+      <stop offset="100%" stop-color="#b14dff"/>
+    </linearGradient>
+
+    <!-- Lightning bolt glow -->
+    <filter id="bolt-glow" x="-60%" y="-30%" width="220%" height="160%">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#ffe14d" flood-opacity="0.95"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="#ff8a00" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <!-- 1. Full-size rounded square background -->
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+
+  <!-- 2. Ambient glow behind the brain -->
+  <ellipse cx="128" cy="115" rx="76" ry="92" fill="url(#glow-grad)" opacity="0.55" filter="url(#glow-blur)"/>
+
+  <!-- 3. Sparks around top and sides -->
+  <g opacity="0.85">
+    <path d="M36,42 Q36,48 30,48 Q36,48 36,54 Q36,48 42,48 Q36,48 36,42 Z" fill="#ffe14d"/>
+    <path d="M220,42 Q220,48 214,48 Q220,48 220,54 Q220,48 226,48 Q220,48 220,42 Z" fill="#00f0ff"/>
+    <circle cx="28" cy="112" r="2.5" fill="#ffffff"/>
+    <circle cx="228" cy="112" r="2.5" fill="#ffffff"/>
+    <path d="M32,168 Q32,173 27,173 Q32,173 32,178 Q32,173 37,173 Q32,173 32,168 Z" fill="#00f0ff"/>
+    <path d="M224,168 Q224,173 219,173 Q224,173 224,178 Q224,173 229,173 Q224,173 224,168 Z" fill="#ffe14d"/>
+    <path d="M82,14 Q82,18 78,18 Q82,18 82,22 Q82,18 86,18 Q82,18 82,14 Z" fill="#ffffff"/>
+    <path d="M174,14 Q174,18 170,18 Q174,18 174,22 Q174,18 178,18 Q174,18 174,14 Z" fill="#ffffff"/>
+  </g>
+
+  <!-- 4. Brainstem (drawn behind the hemispheres) -->
+  <path d="M116,190 C116,212 121,232 124,238 C126,242 130,242 132,238 C135,232 140,212 140,190 Z" fill="url(#stem-grad)"/>
+
+  <!-- 5. Left hemisphere (bounding box roughly x 54..124, y 22..198) -->
+  <path d="M124,30 C120,23 112,22 104,22 C98,22 92,24 88,28 C80,32 72,38 66,48 C58,58 54,70 54,84 C54,98 56,108 60,120 C62,130 67,142 72,152 C78,164 85,176 94,186 C102,194 114,198 120,198 C123,198 124,194 124,188 Z" fill="url(#left-hemi)" stroke="#fff4b0" stroke-width="2.5" stroke-linejoin="round"/>
+
+  <!-- 6. Right hemisphere (bounding box roughly x 132..202, y 22..198) -->
+  <path d="M132,30 C136,23 144,22 152,22 C158,22 164,24 168,28 C176,32 184,38 190,48 C198,58 202,70 202,84 C202,98 200,108 196,120 C194,130 189,142 184,152 C178,164 171,176 162,186 C154,194 142,198 136,198 C133,198 132,194 132,188 Z" fill="url(#right-hemi)" stroke="#a6faff" stroke-width="2.5" stroke-linejoin="round"/>
+
+  <!-- 7. Gyri (folds) - Left hemisphere (darker than fill, opacity 0.75, width 5) -->
+  <g fill="none" stroke="#b3005e" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.75">
+    <path d="M116,40 C102,34 86,40 78,54 C74,62 80,72 92,72"/>
+    <path d="M94,62 C104,66 112,56 118,54"/>
+    <path d="M62,76 C60,90 72,98 86,96 C100,94 108,86 116,90"/>
+    <path d="M118,110 C106,108 94,116 82,114 C70,112 62,122 66,134"/>
+    <path d="M72,136 C80,146 94,142 104,136 C112,132 118,138 118,146"/>
+    <path d="M76,156 C84,166 98,162 108,154 C114,150 118,154 118,162"/>
+    <path d="M88,176 C98,186 110,184 118,176"/>
+  </g>
+
+  <!-- 8. Gyri (folds) - Right hemisphere (darker than fill, opacity 0.75, width 5) -->
+  <g fill="none" stroke="#2a1a9e" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.75">
+    <path d="M140,40 C154,34 170,40 178,54 C182,62 176,72 164,72"/>
+    <path d="M162,62 C152,66 144,56 138,54"/>
+    <path d="M194,76 C196,90 184,98 170,96 C156,94 148,86 140,90"/>
+    <path d="M138,110 C150,108 162,116 174,114 C186,112 194,122 190,134"/>
+    <path d="M184,136 C176,146 162,142 152,136 C144,132 138,138 138,146"/>
+    <path d="M180,156 C172,166 158,162 148,154 C142,150 138,154 138,162"/>
+    <path d="M168,176 C158,186 146,184 138,176"/>
+  </g>
+
+  <!-- 9. Highlights near upper outer edges -->
+  <g fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity="0.7">
+    <path d="M98,27 C88,27 76,33 70,42"/>
+    <path d="M62,54 C58,64 57,76 58,88"/>
+    <path d="M158,27 C168,27 180,33 186,42"/>
+    <path d="M194,54 C198,64 199,76 198,88"/>
+  </g>
+
+  <!-- 10. Lightning bolt down the center (brightest, drawn on top) -->
+  <polygon points="134,8 117,76 129,72 115,146 128,142 116,212 127,208 120,248 136,190 125,194 138,124 125,128 138,54 126,58" fill="#fff7b0" stroke="#ffffff" stroke-width="2" stroke-linejoin="miter" filter="url(#bolt-glow)"/>
+</svg>

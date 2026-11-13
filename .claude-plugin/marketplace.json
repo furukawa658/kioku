@@ -8,8 +8,9 @@
   },
   "plugins": [
     {
-      "name": "claude-mem",
-      "version": "15.18.3",
+      "name": "kioku",
+      "displayName": "kioku",
+      "version": "15.16.0",
       "source": "./plugin",
       "description": "Persistent memory for Claude Code: the next session starts where the last one left off."
     },
@@ -22,6 +23,7 @@
     }
   ],
   "renames": {
+    "claude-mem": "kioku",
     "claude-mem-cowork": "cmem-pro"
   }
 }

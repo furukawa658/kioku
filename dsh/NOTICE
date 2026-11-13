@@ -9,3 +9,8 @@ This product includes software developed for the Claude-Mem project.
 Licensed under the Apache License, Version 2.0.
 
 If other attributions are required by dependencies or included code, add them here.
+
+kioku
+This project is a modified fork of Claude-Mem (https://github.com/thedotmack/claude-mem), Copyright 2026 Alex Newman, licensed under the Apache License, Version 2.0. Modifications: lesson fields (outcome/cause/lesson), JS cosine vector search replacing sqlite-vec, VS Code extension with English/Japanese sidebar.
+
+This project is not affiliated with the Claude-Mem project or cmem.ai.

@@ -50,6 +50,7 @@ function syncCodexPlugin(plugin, pkg) {
     },
     interface: {
       ...plugin.interface,
+      displayName: pkg.name,
       developerName: normalizeAuthorName(pkg.author),
       websiteURL: normalizeRepositoryUrl(pkg.repository),
     },

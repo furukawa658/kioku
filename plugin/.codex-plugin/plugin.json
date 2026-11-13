@@ -1,9 +1,9 @@
 {
-  "name": "claude-mem",
-  "version": "15.18.3",
+  "name": "kioku",
+  "version": "15.16.0",
   "description": "Persistent memory for AI coding agents: the next session starts where the last one left off. Works with Claude Code, Codex, Cursor, OpenCode and more.",
   "author": {
-    "name": "Alex Newman",
+    "name": "Alex Newman, furukawa658",
     "url": "https://github.com/thedotmack"
   },
   "homepage": "https://github.com/thedotmack/claude-mem#readme",
@@ -24,12 +24,12 @@
   ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/codex-no-bundled-hooks.json",
+  "hooks": "./hooks/codex-hooks.json",
   "interface": {
-    "displayName": "claude-mem",
+    "displayName": "kioku",
     "shortDescription": "Persistent memory: the next session starts where the last one left off.",
     "longDescription": "While you work, an observer watches what Codex reads, edits and runs, and writes short notes called observations. The next session starts with a compact index of the ones that matter, so you stop re-explaining the codebase and re-discovering decisions.",
-    "developerName": "Alex Newman",
+    "developerName": "Alex Newman, furukawa658",
     "category": "Productivity",
     "capabilities": [
       "Interactive",

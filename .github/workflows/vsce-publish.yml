@@ -1,0 +1,33 @@
+name: Publish VS Code extension
+
+on:
+  push:
+    tags:
+      - 'vscode-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: vscode-extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install root dependencies
+        working-directory: .
+        run: npm install --ignore-scripts
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: npx @vscode/vsce package --target win32-x64 --no-dependencies --allow-missing-repository
+      - run: node test/package-content.mjs
+      - name: Publish
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx @vscode/vsce publish --packagePath (Get-ChildItem *.vsix).FullName

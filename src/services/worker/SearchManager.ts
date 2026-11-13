@@ -29,6 +29,7 @@ import { ResultFormatter } from './search/ResultFormatter.js';
 import { ChromaUnavailableError } from './search/errors.js';
 import { buildProjectWhereFilter, projectReadKeysFor } from './search/project-where-filter.js';
 import { scopeRowIdsFor } from './search/scope-row-ids.js';
+import { createLocalVectorSearch, type SQLiteVecSearch } from '../vector/SQLiteVecSearch.js';
 
 /**
  * Ceiling for `depth_before` / `depth_after` on the timeline route. Every unit
@@ -70,13 +71,15 @@ export class SearchManager {
      */
     private searchRecencyWindowMs: number = SEARCH_CONSTANTS.RECENCY_WINDOW_MS,
     private contextReader: ContextReadWorkerClient | null = null,
-    private deepReader: DeepSearchExecutor | null = null
+    private deepReader: DeepSearchExecutor | null = null,
+    private readonly localSearch: SQLiteVecSearch | null = createLocalVectorSearch(sessionSearch, sessionStore)
   ) {
     this.orchestrator = new SearchOrchestrator(
       sessionSearch,
       sessionStore,
       chromaSync,
-      searchRecencyWindowMs
+      searchRecencyWindowMs,
+      localSearch
     );
   }
 
@@ -514,6 +517,7 @@ export class SearchManager {
     let sessions: SessionSummarySearchResult[] = [];
     let prompts: UserPromptSearchResult[] = [];
     let chromaFailed = false;
+    let localStrategy: StrategySearchResult['strategy'] | undefined;
     let chromaSupplementStrategy: StrategySearchResult['strategy'] = 'chroma';
     let chromaFailureReason: { message: string; isConnectionError: boolean } | null = null;
 
@@ -552,6 +556,12 @@ export class SearchManager {
       if (searchPrompts) {
         prompts = this.sessionSearch.searchUserPrompts(undefined, options);
       }
+    }
+    else if (this.localSearch) {
+      const local = await this.localSearch.search({ ...options, query, searchType: category ?? 'all',
+        obsType: effectiveObsType, concepts, files });
+      ({ observations, sessions, prompts } = local.results);
+      localStrategy = local.strategy;
     }
     // PATH 2: CHROMA SEMANTIC SEARCH (query text + Chroma available)
     else if (this.chromaSync) {
@@ -693,6 +703,9 @@ export class SearchManager {
       if (!query) {
         // PATH 1: filter-only SQLite (no query text; Chroma never consulted)
         searchStrategy = 'filter_only';
+        fallbackReason = 'none';
+      } else if (localStrategy) {
+        searchStrategy = localStrategy === 'hybrid' ? 'hybrid' : 'fts';
         fallbackReason = 'none';
       } else if (this.chromaSync) {
         // PATH 2: Chroma semantic search. FTS5 answers alone on a Chroma error
@@ -1059,24 +1072,41 @@ export class SearchManager {
   async searchObservations(args: any): Promise<any> {
     const normalized = this.normalizeParams(args);
     const { query, ...options } = normalized;
-    const limit = options.limit || 20;
     let results: ObservationSearchResult[] = [];
+    const semanticWork = { budgetReached: false };
 
-    if (query && this.chromaSync) {
-      // Use the same filtered candidate window and final page boundary as the
-      // unified search. This endpoint's `type` denotes an observation type.
-      const retrieved = await this.searchMemory({
-        ...options,
-        query,
-        type: 'observations',
-        obs_type: options.type,
-        format: 'json',
-        limit,
-      }, undefined, { status: 'not_requested' });
-      results = retrieved.observations;
-    } else {
+    if (this.chromaSync) {
+      logger.debug('SEARCH', 'Using hybrid semantic search (Chroma + SQLite)', {});
       try {
-        results = this.sessionSearch.searchObservations(query, { ...options, limit });
+        const limit = options.limit || 20;
+        // `projects` comes parsed from the route (#4304); the keyword fallback
+        // below already reads it, so Chroma and the hydration must too (#4248).
+        results = await this.hybridSemanticHydrate(query, 'observation', options.project, options.platformSource, (ids, readKeys) =>
+          this.sessionStore.getObservationsByIds(ids, { ...options, orderBy: 'relevance', limit, projects: readKeys }),
+          options.projects,
+          options.dateRange,
+          options.type || options.concepts || options.files || options.dateRange ? limit : undefined,
+          semanticWork
+        );
+      } catch (chromaError) {
+        const errorObject = chromaError instanceof Error ? chromaError : new Error(String(chromaError));
+        logger.error('WORKER', 'Chroma search failed for observations, falling back to FTS', {}, errorObject);
+      }
+    }
+
+    if (results.length === 0 || semanticWork.budgetReached) {
+      try {
+        const ftsResults = this.sessionSearch.searchObservations(query, options);
+        if (ftsResults.length > 0) {
+          // At the work cap, keyword results fill the remaining slots without
+          // discarding valid semantic matches or repeating shared row IDs.
+          const seen = new Set(results.map(row => row.id));
+          results = [...results, ...ftsResults.filter(row => {
+            if (seen.has(row.id)) return false;
+            seen.add(row.id);
+            return true;
+          })].slice(0, options.limit || 20);
+        }
       } catch (ftsError) {
         logger.warn('SEARCH', 'FTS fallback failed for observations', {}, ftsError instanceof Error ? ftsError : undefined);
       }

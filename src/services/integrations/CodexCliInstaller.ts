@@ -17,29 +17,23 @@ import { logger } from '../../utils/logger.js';
 import { findContextBlockRange } from '../../utils/context-injection.js';
 import { readJsonFileWithBom, writeJsonFileAtomic, writeTextFileAtomic } from '../../shared/atomic-json.js';
 import { paths } from '../../shared/paths.js';
-import { RUNTIME_SKILLS } from '../../shared/runtime-skills.js';
 import { buildSpawnSyncInvocation, lookupWindowsCommandCandidates, type SpawnSyncInvocation } from '../../shared/spawn.js';
-import { currentLauncherHostEnvironment, resolveLauncherBinaryPath } from '../../launcher/install-launcher.js';
-import { readTomlBooleanInTable, stripTomlComment, tomlKeyPath, tomlStructuralLines, tomlTableKey } from '../../shared/codex-toml.js';
-import { registerCodexUserHooks, removeCodexUserHooks, type CodexUserHooksResult } from './codex-user-hooks.js';
 
 const CODEX_DIR = path.resolve(process.env.CODEX_HOME || path.join(homedir(), '.codex'));
 const CODEX_AGENTS_MD_PATH = path.join(CODEX_DIR, 'AGENTS.md');
 const CODEX_TRANSCRIPT_WATCH_CONFIG_PATH = paths.transcriptsConfig();
 const CODEX_CONFIG_PATH = path.join(CODEX_DIR, 'config.toml');
 const MARKETPLACE_NAME = 'claude-mem-local';
-const CODEX_PLUGIN_ID = `claude-mem@${MARKETPLACE_NAME}`;
-const LEGACY_CODEX_PLUGIN_IDS = ['claude-mem@thedotmack'];
+const CODEX_PLUGIN_ID = `kioku@${MARKETPLACE_NAME}`;
+const LEGACY_CODEX_PLUGIN_IDS = ['claude-mem@thedotmack', `claude-mem@${MARKETPLACE_NAME}`];
 const MIN_CODEX_MARKETPLACE_VERSION = '0.128.0';
 const REQUIRED_MARKETPLACE_FILES = [
   path.join('.agents', 'plugins', 'marketplace.json'),
   path.join('plugin', '.codex-plugin', 'plugin.json'),
   path.join('plugin', '.mcp.json'),
   path.join('plugin', 'hooks', 'codex-hooks.json'),
-  path.join('plugin', 'skills', RUNTIME_SKILLS.memSearch, 'SKILL.md'),
+  path.join('plugin', 'skills', 'mem-search', 'SKILL.md'),
 ];
-export { readTomlBooleanInTable };
-
 const WINDOWS_CODEX_EXTENSIONS = new Set(['.cmd', '.exe', '.bat', '.com']);
 const MACOS_CODEX_BUNDLE_PATHS = [
   '/Applications/ChatGPT.app/Contents/Resources/codex',
@@ -232,6 +226,82 @@ function registerCodexMarketplace(marketplaceRoot: string, run = runCodex): void
   console.warn(`  Codex marketplace ${MARKETPLACE_NAME} is already registered from another source; replacing it with ${marketplaceRoot}.`);
   run(['plugin', 'marketplace', 'remove', MARKETPLACE_NAME]);
   run(['plugin', 'marketplace', 'add', marketplaceRoot]);
+}
+
+/** A header's trailing comment is not part of its name; quoted hashes are. */
+function stripTomlComment(line: string): string {
+  let quote: '"' | "'" | null = null;
+  for (let index = 0; index < line.length; index++) {
+    const character = line[index];
+    if (quote !== null) {
+      if (quote === '"' && character === '\\') index++;
+      else if (character === quote) quote = null;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '#') {
+      return line.slice(0, index);
+    }
+  }
+  return line;
+}
+
+/** Preserve line indices while excluding multiline string contents from table/key recognition. */
+function tomlStructuralLines(lines: string[]): string[] {
+  let multiline: '"""' | "'''" | null = null;
+  return lines.map((line) => {
+    const structural = multiline === null ? stripTomlComment(line) : '';
+    let quote: '"' | "'" | null = null;
+    for (let index = 0; index < line.length; index++) {
+      if (multiline !== null) {
+        if (multiline === '"""' && line[index] === '\\') {
+          index++;
+        } else if (line.startsWith(multiline, index)) {
+          // TOML permits one or two quote characters immediately before the closing delimiter.
+          const character = multiline[0];
+          let count = 3;
+          while (count < 5 && line[index + count] === character) count++;
+          index += count - 1;
+          multiline = null;
+        }
+      } else if (quote !== null) {
+        if (quote === '"' && line[index] === '\\') index++;
+        else if (line[index] === quote) quote = null;
+      } else if (line[index] === '#') {
+        break;
+      } else if (line.startsWith('"""', index) || line.startsWith("'''", index)) {
+        multiline = line.slice(index, index + 3) as '"""' | "'''";
+        index += 2;
+      } else if (line[index] === '"' || line[index] === "'") {
+        quote = line[index] as '"' | "'";
+      }
+    }
+    return structural;
+  });
+}
+
+/** Read semantic key names without changing their spelling in the user's document. */
+function tomlKeyPath(input: string): { keys: string[]; rest: string } | null {
+  const keys: string[] = [];
+  const escapes: Record<string, string> = { '"': '"', '\\': '\\', b: '\b', t: '\t', n: '\n', f: '\f', r: '\r' };
+  while (true) {
+    const part = /^[ \t]*(?:([A-Za-z0-9_-]+)|"((?:[^"\\\r\n]|\\(?:["\\btnfr]|u[\da-fA-F]{4}|U[\da-fA-F]{8}))*)"|'([^'\r\n]*)')[ \t]*/.exec(input);
+    if (!part) return null;
+    const name = part[1] ?? part[3] ?? part[2].replace(
+      /\\(?:u([\da-fA-F]{4})|U([\da-fA-F]{8})|(["\\btnfr]))/g,
+      (_escape, short: string | undefined, long: string | undefined, simple: string) =>
+        short || long ? String.fromCodePoint(Number.parseInt(short ?? long!, 16)) : escapes[simple],
+    );
+    keys.push(name);
+    input = input.slice(part[0].length);
+    if (!input.startsWith('.')) return { keys, rest: input };
+    input = input.slice(1);
+  }
+}
+
+function tomlTableKey(line: string): string | null {
+  const table = /^\s*\[(?!\[)(.*)\]\s*$/.exec(line);
+  const parsed = table ? tomlKeyPath(table[1]) : null;
+  return parsed && !parsed.rest ? JSON.stringify(parsed.keys) : null;
 }
 
 export function setTomlBooleanInTable(content: string, header: string, key: string, enabled: boolean): string {
@@ -556,25 +626,6 @@ export function stripLegacyTranscriptWatchContexts(configPath = CODEX_TRANSCRIPT
 
 const cleanupLegacyCodexTranscriptAgentsContext = disableCodexTranscriptAgentsContext;
 
-/**
- * Register claude-mem's hooks in the home's own hooks.json, not in the plugin
- * bundle: Codex re-approves a bundled hook after every plugin update, and a
- * user-level hook only when its declaration changes (see codex-user-hooks.ts).
- * `dryRun` checks that the existing file can be merged without writing it.
- */
-function registerCodexHooksForHome(
-  marketplaceRoot: string,
-  codexHome: string,
-  options: { dryRun?: boolean; launcherPath?: string } = {},
-): CodexUserHooksResult {
-  return registerCodexUserHooks({
-    codexHome,
-    hookDefinitionsPath: path.join(marketplaceRoot, 'plugin', 'hooks', 'codex-hooks.json'),
-    launcherPath: options.launcherPath ?? resolveLauncherBinaryPath(currentLauncherHostEnvironment()),
-    dryRun: options.dryRun,
-  });
-}
-
 export async function installCodexCli(marketplaceRootOverride?: string): Promise<number> {
   console.log('\nInstalling Claude-Mem for Codex CLI (native hooks)...\n');
 
@@ -598,48 +649,29 @@ export function installCodexPluginForHome(options: {
   marketplaceRoot: string;
   homePath: string;
   spawn: CodexSpawn;
-  /** Defaults to the on-PATH claude-mem launcher. */
-  launcherPath?: string;
 }): void {
   const root = assertCodexMarketplaceRoot(options.marketplaceRoot);
   assertCodexMarketplaceSupported(options.spawn);
-  // Refuse an unreadable hooks.json before changing anything in this home.
-  registerCodexHooksForHome(root, options.homePath, { dryRun: true, launcherPath: options.launcherPath });
   const run = (args: string[]) => runCodex(args, options.spawn);
   registerCodexMarketplace(root, run);
-  // The refreshed plugin copy bundles no hooks, so adding it first means the
-  // user-level hooks written next are the only registration.
   run(['plugin', 'add', CODEX_PLUGIN_ID]);
   writeCodexPluginConfig(true, path.join(options.homePath, 'config.toml'));
-  registerCodexHooksForHome(root, options.homePath, { launcherPath: options.launcherPath });
 }
 
 export function disableCodexPluginForHome(homePath: string): void {
   writeCodexPluginConfig(false, path.join(homePath, 'config.toml'));
-  removeCodexUserHooks(homePath);
 }
 
 function performCodexInstall(marketplaceRootOverride?: string): number {
   assertCodexMarketplaceSupported();
   const marketplaceRoot = resolvePluginMarketplaceRoot(marketplaceRootOverride);
 
-  // Refuse an unreadable hooks.json before changing anything in Codex's home.
-  registerCodexHooksForHome(marketplaceRoot, CODEX_DIR, { dryRun: true });
-
   console.log(`  Registering Codex plugin marketplace: ${marketplaceRoot}`);
   repairStaleMarketplaceRegistration();
   registerCodexMarketplace(marketplaceRoot);
   enableCodexPluginConfig();
-  // The refreshed plugin copy bundles no hooks, so adding it first means the
-  // user-level hooks written next are the only registration.
   runCodex(['plugin', 'add', CODEX_PLUGIN_ID]);
   console.log('  Installed Codex plugin cache.');
-  const hooks = registerCodexHooksForHome(marketplaceRoot, CODEX_DIR);
-  console.log(`  Registered ${hooks.hookCount} claude-mem hooks in ${hooks.hooksPath}${hooks.changed ? '' : ' (already registered)'}`);
-  const launcherPath = resolveLauncherBinaryPath(currentLauncherHostEnvironment());
-  if (!existsSync(launcherPath)) {
-    console.warn(`  The claude-mem launcher is not at ${launcherPath} yet. Codex hooks run through it; run: npx claude-mem@latest install`);
-  }
   if (!cleanupLegacyCodexAgentsMdContext()) {
     console.warn(`  Native Codex hooks registered, but failed to remove legacy AGENTS.md context from ${CODEX_AGENTS_MD_PATH}.`);
   }
@@ -666,12 +698,8 @@ Plugin source:     ${marketplaceRoot}
 
 Next steps:
   1. Open Codex CLI in your project
-  2. Review and trust the ${hooks.hookCount} claude-mem hooks when Codex prompts you, or with /hooks
+  2. Review and trust the seven claude-mem hooks when Codex prompts you
   3. Restart sessions opened before trusting the hooks
-
-The hooks live in ${hooks.hooksPath}, so this approval stays valid
-across claude-mem updates. Codex asks again only when a hook's own
-definition changes or another tool's hook is removed ahead of it.
 
 For a fresh setup, the supported entry point is:
   npx claude-mem@latest install
@@ -717,15 +745,6 @@ export function uninstallCodexCli(): number {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`\nCodex plugin config update failed: ${message}`);
-    failed = true;
-  }
-
-  try {
-    const removed = removeCodexUserHooks(CODEX_DIR);
-    console.log(`  Removed claude-mem hooks from ${removed.hooksPath}${removed.changed ? '' : ' (none registered)'}`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`\nCodex hooks removal failed: ${message}`);
     failed = true;
   }
 

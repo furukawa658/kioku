@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="{{language}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{csp}}; script-src 'nonce-{{nonce}}'; img-src {{csp}}; connect-src 'none';">
+  <link rel="stylesheet" href="{{css}}">
+  <title>kioku</title>
+</head>
+<body>
+  <header>
+    <div class="brand"><img class="brand-icon" src="{{brain}}" alt=""><h1>kioku</h1></div>
+    <div class="tools">
+      <select id="language" data-i18n-aria-label="languageLabel" aria-label="Language"><option value="en">English</option><option value="ja">日本語</option></select>
+      <button id="refresh" class="icon" title="Refresh connection status and projects" aria-label="Refresh connection status and projects" data-i18n-title="refreshTitle"><img src="{{refresh}}" alt=""></button>
+      <button id="settings" class="icon" title="Connection settings" aria-label="Connection settings" data-i18n-title="settingsTitle"><img src="{{settings}}" alt=""></button>
+    </div>
+  </header>
+  <p id="connection" role="status">Checking connection</p>
+  <main>
+    <section class="ai-settings" aria-labelledby="copilot-heading">
+      <h2 id="copilot-heading" data-i18n="summaryMethodHeading">Summary method</h2>
+      <label class="switch-label" for="copilot-enabled"><input id="copilot-enabled" type="checkbox" role="switch" aria-describedby="copilot-help" disabled><span data-i18n="copilotSwitch">Summarize with Copilot</span><span id="copilot-state">OFF</span></label>
+      <div id="copilot-help" class="help-text">
+        <p data-i18n="copilotHelp1">Off by default. When off, a script on this PC makes an extractive summary from the original text. No external AI is used and this summary feature consumes no AI credits.</p>
+        <p data-i18n="copilotHelp2">When on, GitHub Copilot is used. The title, body and facts of the selected memory are sent only when you press the summarize button in the detail pane, confirm, and choose a model. Switching this on sends nothing. The original memory is not changed.</p>
+        <p data-i18n="copilotHelp3">When on, you must be signed in to Copilot. Some models consume usage quota. Terms of use and data handling follow your plan and your organization's policies.</p>
+      </div>
+      <p id="copilot-setting-status" role="status" class="metadata"></p>
+    </section>
+    <form id="search-form">
+      <label for="query" data-i18n="queryLabel">Search terms</label>
+      <div class="query-row"><input id="query" type="search" required maxlength="2000" autocomplete="off"><button id="search" class="icon primary" type="submit" title="Search" aria-label="Search" data-i18n-title="searchTitle"><img src="{{search}}" alt=""></button></div>
+      <label for="project" data-i18n="projectLabel">Project</label>
+      <select id="project"><option value="" data-i18n="allProjects">All</option></select>
+      <div class="dates">
+        <div><label for="date-start" data-i18n="dateStart">Start date</label><input id="date-start" type="date"></div>
+        <div><label for="date-end" data-i18n="dateEnd">End date</label><input id="date-end" type="date"></div>
+      </div>
+    </form>
+    <p id="error" role="alert" hidden></p>
+    <div class="results-heading"><h2 data-i18n="resultsHeading">Results</h2><span id="result-count" role="status"></span></div>
+    <p id="empty">No search yet</p>
+    <ul id="results" aria-label="Results" aria-busy="false" data-i18n-aria-label="resultsHeading"></ul>
+    <section id="detail" hidden aria-labelledby="detail-heading">
+      <div class="detail-heading"><h2 id="detail-heading" data-i18n="detailHeading">Detail</h2><button id="close-detail" class="icon" title="Close detail" aria-label="Close detail" data-i18n-title="closeDetail"><img src="{{close}}" alt=""></button></div>
+      <p id="detail-status" role="status"></p>
+      <h3 id="detail-title"></h3>
+      <p id="detail-meta" class="metadata"></p>
+      <div id="detail-body"></div>
+      <button id="summarize" class="command" type="button" title="Summarize the selected memory with the script" disabled><img src="{{sparkles}}" alt=""><span id="summary-button-text">Summarize with script</span></button>
+      <p id="summary-status" role="status" class="metadata"></p>
+      <section id="ai-summary" hidden aria-labelledby="summary-heading">
+        <h3 id="summary-heading" data-i18n="summaryHeading">Summary</h3>
+        <p id="summary-model" class="metadata"></p>
+        <div id="summary-text"></div>
+      </section>
+    </section>
+  </main>
+  <script nonce="{{nonce}}" src="{{js}}"></script>
+</body>
+</html>

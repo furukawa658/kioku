@@ -126,7 +126,7 @@ const MILLISECONDS_PER_MINUTE = 60_000;
 const MILLISECONDS_PER_HOUR = 60 * MILLISECONDS_PER_MINUTE;
 
 /** claude-mem's key in Claude Code's enabledPlugins and installed_plugins.json (install.ts registerPlugin, enablePluginInClaudeSettings). */
-const CLAUDE_MEM_PLUGIN_KEY = 'claude-mem@thedotmack';
+const CLAUDE_MEM_PLUGIN_KEY = 'kioku@thedotmack';
 
 /**
  * claude-mem's marketplace key in Claude Code's known_marketplaces.json and
@@ -396,13 +396,13 @@ export interface ClaudeCodeSettingsEnvRead {
  * user's choice made there, or stop on a file it cannot read.
  */
 export interface ClaudeCodePluginState {
-  /** enabledPlugins['claude-mem@thedotmack'] in Claude Code's user settings (install.ts enablePluginInClaudeSettings sets it to true). */
+  /** enabledPlugins['kioku@thedotmack'] in Claude Code's user settings (install.ts enablePluginInClaudeSettings sets it to true). */
   userSettings:
     | { kind: 'explicitly-disabled'; path: string }
     | { kind: 'not-disabled' }
     | { kind: 'unreadable'; path: string; problem: string };
   /**
-   * claude-mem@thedotmack's user-scope entry in Claude Code's
+   * kioku@thedotmack's user-scope entry in Claude Code's
    * installed_plugins.json, the one install.ts registerPlugin writes on every
    * install, for every host. Entries of other scopes are not read.
    */

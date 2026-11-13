@@ -15,6 +15,7 @@ const packageVersion = typeof __DEFAULT_PACKAGE_VERSION__ !== 'undefined' ? __DE
 import { logger } from '../utils/logger.js';
 import { spoolWorkStateMcpInstruction, spoolWorkStateMcpResult } from '../cli/work-state-telemetry.js';
 import { mcpServerInstructions } from '../shared/memory-instructions.js';
+import { LESSON_CONCEPT, MEMORY_OUTCOMES, memoryOutcomeConcept } from '../shared/memory-lesson.js';
 
 console['log'] = (...args: any[]) => {
   logger.error('CONSOLE', 'Intercepted console output (MCP protocol protection)', undefined, { args });
@@ -61,7 +62,7 @@ import {
   withoutUnjoinedTeamBrainTools,
   WORK_STATE_TOOL_NAMES,
 } from './mcp-tool-visibility.js';
-import { loadFromFileOnce, readLocalApiToken } from '../shared/hook-settings.js';
+import { loadFromFileOnce } from '../shared/hook-settings.js';
 import { teamBrainConnection } from '../shared/teambrain.js';
 import { isWorkStateEnabled } from '../shared/work-state-setting.js';
 import { getProjectContext, type ProjectContext } from '../utils/project-name.js';
@@ -70,7 +71,7 @@ import { parseProjectList, projectsQueryValues } from '../shared/project-list.js
 import { postCorpusRequestOverSse } from './corpus-worker-stream.js';
 import { withWorkerRestartOnRefusedConnection } from './worker-restart.js';
 import { ProgressiveSearchError, progressiveSearchToolError } from '../shared/progressive-search.js';
-import { formatMcpPayload, formatWorkerMcpResponse, formatWorkStateMcpResponse, mcpTextResult, workerFailureText, serverFailureText, type McpTextPurpose } from './mcp-text-format.js';
+import { formatMcpPayload, formatWorkerMcpResponse, mcpTextResult, workerFailureText, serverFailureText, type McpTextPurpose } from './mcp-text-format.js';
 import { getRequestCwd, runWithCwd } from './request-context.js';
 import { parseHttpArgs, startMcpHttpServer, type CwdResolver, type McpHttpOptions } from './mcp-http.js';
 import { createStdioCwdResolver } from './mcp-project-cwd.js';
@@ -192,8 +193,7 @@ async function requestWorker(endpoint: string, opts: WorkerCallOptions): Promise
   logger.debug('SYSTEM', '← Worker API success', undefined, { endpoint });
 
   if (opts.text) {
-    const text = await response.text();
-    return endpoint === '/api/work-state' ? formatWorkStateMcpResponse(text) : mcpTextResult(text);
+    return mcpTextResult(await response.text());
   }
   return formatWorkerMcpResponse(workerResultPurpose(endpoint, Boolean(opts.body)), await response.json());
 }
@@ -563,14 +563,17 @@ const tools: McpToolDefinition[] = [
   },
   {
     name: 'save_memory',
-    description: 'Save an explicit durable note, decision, correction or handoff into worker-mode claude-mem. Use this for your own note taking after searching memory for duplicates. Include project when the note belongs to a specific project. Server runtime uses observation_add to write to the selected server.',
+    description: `Save an explicit durable note, decision, correction, lesson or handoff into worker-mode claude-mem. Use this for your own note taking after searching memory for duplicates. When the note comes from work that succeeded or failed, do not save only the progress or the result: set outcome, cause and lesson, so the reason and what to do next time can be found again with search concepts="${LESSON_CONCEPT}". Include project when the note belongs to a specific project. Server runtime uses observation_add to write to the selected server.`,
     inputSchema: {
       type: 'object',
       properties: {
-        text: { type: 'string', description: 'Durable memory text.' },
+        text: { type: 'string', description: 'Durable memory text. For a lesson: what was attempted and what happened.' },
         title: { type: 'string', description: 'Concise searchable title.' },
         project: { type: 'string', description: 'Project receiving the note; defaults to the active checkout.' },
         metadata: { type: 'object', additionalProperties: true, description: 'Optional provenance or source metadata.' },
+        outcome: { type: 'string', enum: [...MEMORY_OUTCOMES], description: 'How the work behind this note ended.' },
+        cause: { type: 'string', description: 'Why it succeeded or failed. State a verified cause; say so when it is still a guess.' },
+        lesson: { type: 'string', description: 'What to do or avoid next time, and the conditions under which that applies.' },
       },
       required: ['text'],
       additionalProperties: false,
@@ -587,7 +590,7 @@ const tools: McpToolDefinition[] = [
 2. timeline(anchor=ID) → Get context around interesting results
 3. get_observations([IDs]) → Fetch selected details ONLY for filtered IDs
 Exceptional follow-up: get_tool_uses([IDs]) for raw tool_input/tool_response, ONLY when the summary is not enough
-NEVER fetch full details without filtering first: an index row is ~50-100 tokens, about a tenth of a ~500-1,000-token record, so filtering decides how many records you fetch, not how large each one is.`,
+NEVER fetch full details without filtering first. 10x token savings.`,
     inputSchema: {
       type: 'object',
       properties: {}
@@ -618,7 +621,7 @@ Use the original three-step mem-search workflow. Reason about the index and time
    \`get_tool_uses(ids=[...])\`
    Returns: The original tool_input / tool_response bodies (UNSUMMARIZED — can be thousands of tokens each)
 
-**Why:** an index row is ~50-100 tokens, about a tenth of a ~500-1,000-token record, so filtering decides how many records you fetch, not their size. Never fetch full details without filtering first, and never reach for raw tool I/O before the three-step workflow.
+**Why:** 10x token savings. Never fetch full details without filtering first, and never reach for raw tool I/O before the three-step workflow.
 
 Optional Dumb search: \`dumb_search({query, project})\`. Doesn’t reason about the results. Fast, but shallow. Use Smart for reliable recall.`
       }]
@@ -626,7 +629,7 @@ Optional Dumb search: \`dumb_search({query, project})\`. Doesn’t reason about 
   },
   {
     name: 'search',
-    description: 'Smart search (default), step 1: search memory for an index with IDs. Review it, use timeline for context, then get_observations only for selected IDs. Params: query, limit, project, platformSource, type, obs_type, dateStart, dateEnd, offset, orderBy',
+    description: 'Smart search (default), step 1: search memory for an index with IDs. Review it, use timeline for context, then get_observations only for selected IDs. Params: query, limit, project, platformSource, type, obs_type, concepts, dateStart, dateEnd, offset, orderBy',
     inputSchema: {
       type: 'object',
       properties: {
@@ -638,6 +641,7 @@ Optional Dumb search: \`dumb_search({query, project})\`. Doesn’t reason about 
         platformSource: { type: 'string', description: "Filter by platform source (e.g. claude, codex, cursor) — restricts results to that agent's own memory" },
         type: { type: 'string', description: "Document category to search: 'observations', 'sessions', or 'prompts' (default: all). Any other value is treated as an observation-type filter (alias for obs_type)." },
         obs_type: { type: 'string', description: 'Filter observations by their type (e.g. bugfix, feature). Comma-separated for multiple.' },
+        concepts: { type: 'string', description: `Filter observations by concept; comma-separated values match any of them. "${LESSON_CONCEPT}" selects notes saved with a lesson, and ${MEMORY_OUTCOMES.map(outcome => `"${memoryOutcomeConcept(outcome)}"`).join(', ')} select by how the work ended. Add type="observations" to leave out sessions and prompts.` },
         dateStart: { type: 'string', description: 'Start date filter (ISO)' },
         dateEnd: { type: 'string', description: 'End date filter (ISO)' },
         offset: { type: 'number', description: 'Pagination offset' },
@@ -650,7 +654,7 @@ Optional Dumb search: \`dumb_search({query, project})\`. Doesn’t reason about 
       if (selectRuntime() === 'server') {
         if (args?.deep !== undefined && args.deep !== false) return mcpTextResult('Raw-tool deep search is local-only; no local worker request was made.', true);
         const ctx = requireServerForObservationTool('search');
-        const unsupported = ['project', 'obs_type', 'dateStart', 'dateEnd', 'offset', 'orderBy']
+        const unsupported = ['project', 'obs_type', 'concepts', 'dateStart', 'dateEnd', 'offset', 'orderBy']
           .filter(key => args?.[key] !== undefined);
         if (unsupported.length || (args?.type !== undefined && args.type !== 'observations')) {
           return mcpTextResult('Server search supports query, projectId, limit, and platformSource. Remove unsupported local filters; this request was not sent to the local worker.', true);
@@ -1353,7 +1357,7 @@ function detectMissingMarketplaceMarker(): void {
   if (!present && cachePresent) {
     logger.error(
       'SYSTEM',
-      'claude-mem MCP started but no marketplace directory was found at ~/.claude/plugins/marketplaces/thedotmack, the XDG equivalent, or the thedotmack installLocation in known_marketplaces.json. The IDE plugin loader needs that directory to fire claude-mem hooks (SessionStart, PostToolUse, Stop, etc.). Without it, MCP search will work but no new memories will be captured. To self-heal, reinstall the plugin from the marketplace (/plugin marketplace add thedotmack/claude-mem, then /plugin install claude-mem@thedotmack).',
+      'claude-mem MCP started but no marketplace directory was found at ~/.claude/plugins/marketplaces/thedotmack, the XDG equivalent, or the thedotmack installLocation in known_marketplaces.json. The IDE plugin loader needs that directory to fire claude-mem hooks (SessionStart, PostToolUse, Stop, etc.). Without it, MCP search will work but no new memories will be captured. To self-heal, reinstall the plugin from the marketplace (/plugin marketplace add thedotmack/claude-mem, then /plugin install kioku@thedotmack).',
       { marketplaceCandidates, cacheRoot }
     );
   }
@@ -1414,7 +1418,6 @@ async function mainHttp(options: McpHttpOptions) {
     ...options,
     pluginRoot: options.pluginRoot ?? MCP_PLUGIN_ROOT,
     originPolicy: buildWorkerOriginPolicy(loadFromFileOnce()),
-    localApiToken: readLocalApiToken(),
     createServer: createMcpServer,
   });
   logger.info('SYSTEM', 'Claude-mem MCP HTTP server started', { host: options.host, port: handle.port });

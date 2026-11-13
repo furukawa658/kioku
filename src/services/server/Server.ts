@@ -9,11 +9,9 @@ import {
   createCorsMiddleware,
   createForeignPageDeleteGuard,
   createMiddleware,
-  createLocalApiTokenGuard,
   createRemoteReadOnlyGuard,
   createWorkerHostGuard,
   requireLocalhost,
-  type LocalApiTokenOptions,
   type RemoteReadOnlyOptions,
   type WorkerOriginPolicy,
 } from '../worker/http/middleware.js';
@@ -29,7 +27,6 @@ import type { ObservationQueueHealth } from '../../server/queue/queue-health-typ
 import type { ChromaCrashState } from '../sync/ChromaMcpManager.js';
 import { clearWindowsListenSocketInherit } from '../../shared/windows-listen-socket.js';
 import { TERMINAL_INIT_PHASES, type InitPhaseSource, type InitPhaseState } from './init-phase.js';
-import { RUNTIME_SKILLS } from '../../shared/runtime-skills.js';
 
 /**
  * Keep-alive comment cadence on GET /api/ready. Clients treat 5 s of silence
@@ -38,7 +35,7 @@ import { RUNTIME_SKILLS } from '../../shared/runtime-skills.js';
  */
 const READY_STREAM_PING_INTERVAL_MS = 2000;
 
-const INSTRUCTIONS_BASE_DIR: string = path.resolve(__dirname, '../skills', RUNTIME_SKILLS.memSearch);
+const INSTRUCTIONS_BASE_DIR: string = path.resolve(__dirname, '../skills/mem-search');
 const INSTRUCTIONS_OPERATIONS_DIR: string = path.join(INSTRUCTIONS_BASE_DIR, 'operations');
 const INSTRUCTIONS_SKILL_PATH: string = path.join(INSTRUCTIONS_BASE_DIR, 'SKILL.md');
 
@@ -153,15 +150,6 @@ export interface ServerOptions {
    */
   remoteReadOnly?: RemoteReadOnlyOptions;
   /**
-   * Local API token mode (#5141). When present, a guard runs before everything else,
-   * the Observation TV guard included, and refuses every request without the
-   * token, loopback too, except the exact routes in shared/local-api-token.ts. A
-   * browser page opened with `?token=` keeps working: see createLocalApiTokenGuard.
-   * Observation TV's remote mode needs the token as well. Absent (the default, and
-   * the server runtime's choice) ⇒ nothing is mounted and behavior is unchanged.
-   */
-  localApiToken?: LocalApiTokenOptions;
-  /**
    * Worker only: trusted browser origins and Host names (plan-23 step 4). When
    * present, a DNS-rebinding Host check runs before CORS, and CORS also admits
    * same-host and explicitly allowlisted origins. The server runtime leaves it
@@ -226,7 +214,6 @@ export class Server {
     // the express.static mount (setupMiddleware), /api/admin/* (setupCoreRoutes)
     // and every route registered later all mount after this point. Anything
     // mounted afterwards leaves earlier routes uncovered.
-    this.setupLocalApiTokenGuard();
     this.setupRemoteReadOnlyGuard();
     this.setupSecurityHeaders();
     this.setupCors();
@@ -312,11 +299,14 @@ export class Server {
   async close(): Promise<void> {
     if (!this.server) return;
 
+    this.server.closeAllConnections();
+
+    if (process.platform === 'win32') {
+      await new Promise(r => setTimeout(r, 500));
+    }
+
     await new Promise<void>((resolve, reject) => {
-      // Stop accepting connections before the sweep, so a reconnecting stream
-      // cannot arrive afterward and keep close() waiting indefinitely.
       this.server!.close(err => err ? reject(err) : resolve());
-      this.server!.closeAllConnections();
     });
 
     if (process.platform === 'win32') {
@@ -349,13 +339,6 @@ export class Server {
     });
     const middlewares = createMiddleware();
     middlewares.forEach(mw => this.app.use(mw));
-  }
-
-  private setupLocalApiTokenGuard(): void {
-    if (!this.options.localApiToken) {
-      return;
-    }
-    this.app.use(createLocalApiTokenGuard(this.options.localApiToken));
   }
 
   private setupRemoteReadOnlyGuard(): void {
@@ -467,6 +450,7 @@ export class Server {
         status: queueDegraded ? 'degraded' : 'ok',
         ...(this.options.runtime ? { runtime: this.options.runtime } : {}),
         version: BUILT_IN_VERSION,
+        localVectorSearch: process.env.KIOKU_SQLITE_VEC_ENABLED === 'true',
         workerPath: this.options.workerPath,
         uptime: getUptimeSeconds(this.startTime),
         managed: process.env.CLAUDE_MEM_MANAGED === 'true',

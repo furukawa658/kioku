@@ -139,8 +139,7 @@ export const DEFAULT_LLM_TIMEOUT_MS = 180_000;
 
 /**
  * A shipped default that changed after installs had seeded the old one: two
- * per-request deadlines (below), the image capture switch and the observer
- * generation budget. Every settings.json seeded while 30000 was the default
+ * per-request deadlines (below) and the image capture switch. Every settings.json seeded while 30000 was the default
  * holds it on disk, and persisted values win over DEFAULTS, so a raise could
  * never reach those installs. The move rewrites the exact string the seeders
  * wrote; any other value, including a hand-written number, is a deliberate
@@ -154,11 +153,7 @@ export const DEFAULT_LLM_TIMEOUT_MS = 180_000;
  * other value (or the env var) keeps a short one.
  */
 interface ChangedShippedDefault {
-  key:
-    | 'CLAUDE_MEM_LLM_TIMEOUT_MS'
-    | 'CLAUDE_MEM_FIELD_OPTIMIZE_TIMEOUT_MS'
-    | 'CLAUDE_MEM_MEDIA_CAPTURE_ENABLED'
-    | 'CLAUDE_MEM_OBSERVER_MAX_CONVERSATION_CHARS';
+  key: 'CLAUDE_MEM_LLM_TIMEOUT_MS' | 'CLAUDE_MEM_FIELD_OPTIMIZE_TIMEOUT_MS' | 'CLAUDE_MEM_MEDIA_CAPTURE_ENABLED';
   /** The exact string the seeders wrote while it was the default. */
   legacy: string;
   /** Names this key's marker, so each move gets its own one chance. */
@@ -185,12 +180,6 @@ const CHANGED_SHIPPED_DEFAULTS: readonly ChangedShippedDefault[] = [
   // too; typing it changed nothing while 'false' was the default. After this
   // one move, a 'false' saved by the "Keep images" switch or by hand stays.
   { key: 'CLAUDE_MEM_MEDIA_CAPTURE_ENABLED', legacy: 'false', markerTag: 'media-capture-default-on-v1', unit: '', applyOnlyWhenSaved: true },
-  // Seeded '400000' from #3800 until the default came down to 100000 (#5023):
-  // an observer turn measured about 100K tokens at 400000 and about 26K at
-  // 100000. Any other saved value is a deliberate choice and stays. A budget
-  // too long only costs tokens, so a failed rewrite may use the new default in
-  // memory, like the deadlines.
-  { key: 'CLAUDE_MEM_OBSERVER_MAX_CONVERSATION_CHARS', legacy: '400000', markerTag: 'observer-max-conversation-chars-v1', unit: ' chars', applyOnlyWhenSaved: false },
 ];
 
 // Present ⇔ this settings file has had its one chance at the move for that key.
@@ -237,7 +226,6 @@ function migratedCloudSyncHubUrl(raw: unknown): string | null {
 }
 
 export interface SettingsDefaults {
-  CLAUDE_MEM_SKILLS_DISABLED: string;
   CLAUDE_MEM_MEMORY_SEARCH_HOOK_ENABLED: string;
   CLAUDE_MEM_MEMORY_INSTRUCTIONS_ENABLED: string;
   CLAUDE_MEM_MEMORY_WATCH_ROOTS: string;
@@ -259,6 +247,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_IDLE_EXIT_SEC: string;  // Worker idle-exit window in seconds; '0' (default) = never idle-exit.
   CLAUDE_MEM_SKIP_TOOLS: string;
   CLAUDE_MEM_SKIP_BASH_PATTERNS: string;
+  CLAUDE_MEM_RULE_BASED_OBSERVATIONS: string;     // 'true' で編集系ツールの観察をLLMなしで生成する
   CLAUDE_MEM_SKIP_SUBAGENT_OBSERVATIONS: string;  // #2736 — skip ALL subagent observations (agent id AND agent type present)
   CLAUDE_MEM_SKIP_AGENT_TYPES: string;            // #2736 — comma-separated subagent agent_type values to skip (e.g. workflow-subagent,Explore)
   CLAUDE_MEM_CAPTURE_ADVISOR_CALLS: string;       // #3165 — record Claude Code `advisor` tool calls (advice text) at Stop
@@ -332,7 +321,6 @@ export interface SettingsDefaults {
   CLAUDE_MEM_AUTO_CLEAR_ENABLED: string;
   CLAUDE_MEM_AUTO_CLEAR_PERCENT: string;
   CLAUDE_MEM_FILE_READ_GATE_ENABLED: string;
-  CLAUDE_MEM_LINE_ANCHORS_ENABLED: string;
   CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED: string;
   CLAUDE_MEM_FOLDER_USE_LOCAL_MD: string;  
   CLAUDE_MEM_TRANSCRIPTS_ENABLED: string;  
@@ -410,14 +398,6 @@ export interface SettingsDefaults {
   // GET /api/observations to holders of this secret. Mint with:
   //   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
   CLAUDE_MEM_TV_TOKEN: string;
-  // Local API token (#5141), for hosts with more than one OS user. EMPTY = OFF:
-  // nothing changes. Set, the worker API and the MCP HTTP transport refuse a
-  // request that does not carry it (X-Claude-Mem-Token or Authorization:
-  // Bearer), except GET /api/health and the MCP /health. The viewer opens as
-  // /?token=... File-only: HTTP cannot write it and the environment does not
-  // switch it. Read once at boot; restart to change. Mint with the same
-  // command as CLAUDE_MEM_TV_TOKEN.
-  CLAUDE_MEM_LOCAL_API_TOKEN: string;
   // claude-mem sign-in funnel state, written by the installer's browser-login
   // step (install.ts promptBrowserLogin/completeTrialPairing). Declared here so
   // loadFromFile round-trips them instead of dropping unknown keys.
@@ -456,7 +436,6 @@ export interface SettingsDefaults {
   CLAUDE_MEM_WORK_VIEW_CODEX_MODEL: string;
   CLAUDE_MEM_WORK_VIEW_GEMINI_MODEL: string;
   CLAUDE_MEM_WORK_VIEW_API_MODEL: string;
-  CLAUDE_MEM_CORPUS_AGENT: string;
   CLAUDE_MEM_WORK_VIEW_TEXT_LANGUAGE: string;
   // Automatic local DB snapshots (BackupManager). Opt-in via ENABLED.
   CLAUDE_MEM_BACKUP_ENABLED: string;
@@ -536,7 +515,6 @@ export interface SettingsDefaults {
 
 export class SettingsDefaultsManager {
   private static readonly DEFAULTS: SettingsDefaults = {
-    CLAUDE_MEM_SKILLS_DISABLED: '',
     CLAUDE_MEM_MEMORY_SEARCH_HOOK_ENABLED: 'true',
     CLAUDE_MEM_MEMORY_INSTRUCTIONS_ENABLED: 'true',
     // Explicit JSON [{path, project, platformSource?}]. Empty means no files imported.
@@ -571,6 +549,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_IDLE_EXIT_SEC: '0',
     CLAUDE_MEM_SKIP_TOOLS: 'ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion',
     CLAUDE_MEM_SKIP_BASH_PATTERNS: '',  // Regex matched against a shell command (Bash; PowerShell; Codex exec_command); when it matches, the observation is skipped. Empty = capture every command. Use alternation for several patterns, e.g. ^(ls|cat|pwd)\b
+    CLAUDE_MEM_RULE_BASED_OBSERVATIONS: 'false',
     CLAUDE_MEM_SKIP_SUBAGENT_OBSERVATIONS: 'false',  // #2736 — default off preserves current behavior; set 'true' to skip every subagent observation (recommended for heavy Dynamic Workflows users)
     CLAUDE_MEM_SKIP_AGENT_TYPES: '',                 // #2736 — default empty preserves current behavior; recommended value 'workflow-subagent' to drop Dynamic Workflows fan-out noise
     CLAUDE_MEM_CAPTURE_ADVISOR_CALLS: 'false',       // #3165 — opt-in: the Stop hook scans the transcript's tail for advisor calls and stores the advice locally (worker runtime only)
@@ -659,7 +638,6 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_AUTO_CLEAR_ENABLED: 'false', // Claude Code mod (plugin/hooks/auto-clear.js): at CLAUDE_MEM_AUTO_CLEAR_PERCENT of the context window, Claude saves its work state, then /clear runs and "continue" is sent. Off unless set to 'true'. Needs work state on
     CLAUDE_MEM_AUTO_CLEAR_PERCENT: '33',    // Context window use (1-95) that starts the auto-clear
     CLAUDE_MEM_FILE_READ_GATE_ENABLED: 'true',  // 'false' = never block a full-file Read; the file's observation timeline is still added as context
-    CLAUDE_MEM_LINE_ANCHORS_ENABLED: 'false',  // #4943, opt-in: the worker records line anchors in observation metadata and the file-context timeline shows where that code is now (@L123) or "(code changed since)". Only 'true' turns it on
     CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED: 'false',
     CLAUDE_MEM_FOLDER_USE_LOCAL_MD: 'false',  // When true, writes to CLAUDE.local.md instead of CLAUDE.md
     CLAUDE_MEM_TRANSCRIPTS_ENABLED: 'true',
@@ -670,11 +648,7 @@ export class SettingsDefaultsManager {
     // plan), so capture is opt-in (Wave 3 gate R4-5).
     CLAUDE_MEM_CODEX_SUBAGENT_INGESTION: 'false',
     CLAUDE_MEM_MAX_CONCURRENT_AGENTS: '2',  // Max concurrent Claude SDK agent subprocesses
-    // Retire an observer conversation past this size and start a fresh generation (#3800).
-    // 100000, not the first default of 400000: #5023 measured about 100K tokens per
-    // observer turn at 400000 and about 26K at 100000. Installs seeded with '400000'
-    // move once (CHANGED_SHIPPED_DEFAULTS).
-    CLAUDE_MEM_OBSERVER_MAX_CONVERSATION_CHARS: '100000',
+    CLAUDE_MEM_OBSERVER_MAX_CONVERSATION_CHARS: '400000',  // Retire an observer conversation past this size and start a fresh generation (#3800)
     CLAUDE_MEM_OBSERVER_THINKING: 'disabled',  // Observer thinking param: 'disabled' (shipped) | 'adaptive' | 'enabled[:budget]' | 'omit' — an always-thinking gateway upstream rejects 'disabled' with 400/1210 (#4732)
     CLAUDE_MEM_OBSERVER_CONTEXT_WINDOW: '',  // Observer model context window in tokens; '' = resolve it (OpenRouter catalogue, Gemini/Claude maps). Lowers the budget above to half the window (#3625)
     CLAUDE_MEM_OBSERVER_MAX_OUTPUT_TOKENS: '4096',  // max_tokens / max_completion_tokens / Gemini maxOutputTokens on every HTTP observer request (#3868)
@@ -758,7 +732,6 @@ export class SettingsDefaultsManager {
     // GET /api/observations to holders of this secret. Mint with:
     //   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
     CLAUDE_MEM_TV_TOKEN: '',
-    CLAUDE_MEM_LOCAL_API_TOKEN: '', // Local API token. Empty = off. See the declaration above.
     // claude-mem sign-in funnel state: all empty until the installer's
     // browser-login step writes them.
     CLAUDE_MEM_PRO_TRIAL_EMAIL: '',     // Email the sign-in link was sent to (don't-re-nag marker)
@@ -788,7 +761,6 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_WORK_VIEW_CODEX_MODEL: '',  // #5164 — same for Codex; empty keeps the per-step table
     CLAUDE_MEM_WORK_VIEW_GEMINI_MODEL: '', // #5164 — same for Gemini; empty keeps flash-lite/flash per step
     CLAUDE_MEM_WORK_VIEW_API_MODEL: '', // Model for every My Work refresh step on the selected API provider; empty keeps the provider's configured model
-    CLAUDE_MEM_CORPUS_AGENT: '', // Which agent answers knowledge-corpus prime/query/reprime: '' uses the Claude Agent SDK (the Claude subscription); 'api' answers over chat completions on the selected openrouter/openai-compatible provider and spends that provider's credit
     CLAUDE_MEM_WORK_VIEW_TEXT_LANGUAGE: '', // Language for My Work's generated text (titles, reviews, story), such as 'Turkish'. No extra model call; empty uses the language the grouping step finds in the owner's asks, decided once per run (#5660)
     // Automatic local DB snapshots (BackupManager). Off by default; opt-in.
     CLAUDE_MEM_BACKUP_ENABLED: 'false',

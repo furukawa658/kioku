@@ -1,0 +1,90 @@
+{
+  "name": "kioku-search",
+  "displayName": "kioku",
+  "description": "Long-term memory for AI coding agents: keeps lessons from successes and failures and shares them across chats. A claude-mem fork with offline search, bundled for Windows x64.",
+  "version": "0.3.0",
+  "icon": "media/brain.png",
+  "publisher": "ShunsukeF",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/furukawa658/kioku.git"
+  },
+  "homepage": "https://github.com/furukawa658/kioku#readme",
+  "bugs": {
+    "url": "https://github.com/furukawa658/kioku/issues"
+  },
+  "engines": {
+    "vscode": "^1.102.0"
+  },
+  "main": "./extension.cjs",
+  "extensionKind": ["ui"],
+  "capabilities": {
+    "untrustedWorkspaces": { "supported": false }
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:kioku.search",
+    "onMcpServerDefinitionProvider:kioku.local"
+  ],
+  "scripts": {
+    "build": "node --use-env-proxy build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check extension.cjs && node --check runtime.cjs && node --check mcp-provider.cjs && node --check copilot.cjs && node --check local-summary.cjs && node --check language.cjs && node --check media/sidebar.js"
+  },
+  "contributes": {
+    "mcpServerDefinitionProviders": [
+      { "id": "kioku.local", "label": "kioku local memory" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "kioku",
+          "title": "kioku",
+          "icon": "media/brain.svg"
+        }
+      ]
+    },
+    "views": {
+      "kioku": [
+        {
+          "id": "kioku.search",
+          "name": "Memory search",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "kioku",
+      "properties": {
+        "kioku.language": {
+          "type": "string",
+          "enum": ["en", "ja"],
+          "enumDescriptions": ["English", "Japanese"],
+          "default": "en",
+          "scope": "application",
+          "description": "Language of the kioku sidebar. English by default. It can also be switched from the sidebar."
+        },
+        "kioku.copilotEnabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "description": "OFF (default): local extractive script summaries with no AI credit consumption. ON: explicit, confirmed GitHub Copilot summaries, subject to your plan and model usage limits."
+        },
+        "kioku.workerUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Local kioku worker URL. Leave empty to detect the existing kioku settings and installation port. Only HTTP loopback addresses are allowed."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^4.1.0",
+    "lucide-static": "^1.71.0",
+    "playwright": "^1.65.0"
+  }
+}
