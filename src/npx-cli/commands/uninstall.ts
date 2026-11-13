@@ -13,7 +13,6 @@ import {
   writeJsonFileAtomic,
 } from '../utils/paths.js';
 import { readJsonSafe } from '../../utils/json-utils.js';
-import { clearClaudeAutoMemoryOverride } from '../utils/claude-auto-memory.js';
 import { writeTextFileAtomic } from '../../shared/atomic-json.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH, resolveDataDir } from '../../shared/paths.js';
@@ -72,7 +71,7 @@ function removeMarketplaceDirectory(): boolean {
 }
 
 function removeCacheDirectory(): boolean {
-  const cacheDirectory = join(pluginsDirectory(), 'cache', 'thedotmack', 'claude-mem');
+  const cacheDirectory = join(pluginsDirectory(), 'cache', 'thedotmack', 'kioku');
   if (existsSync(cacheDirectory)) {
     rmSync(cacheDirectory, { recursive: true, force: true });
     return true;
@@ -90,8 +89,8 @@ function removeFromKnownMarketplaces(): void {
 
 function removeFromInstalledPlugins(): void {
   const installedPlugins = readJsonSafe<Record<string, any>>(installedPluginsPath(), {});
-  if (installedPlugins.plugins?.['claude-mem@thedotmack']) {
-    delete installedPlugins.plugins['claude-mem@thedotmack'];
+  if (installedPlugins.plugins?.['kioku@thedotmack']) {
+    delete installedPlugins.plugins['kioku@thedotmack'];
     writeJsonFileAtomic(installedPluginsPath(), installedPlugins);
   }
 }
@@ -132,8 +131,8 @@ export function removeFromClaudeSettings(): void {
   const settings = readJsonSafe<Record<string, any>>(claudeSettingsPath(), {});
   let dirty = false;
 
-  if (settings.enabledPlugins?.['claude-mem@thedotmack'] !== undefined) {
-    delete settings.enabledPlugins['claude-mem@thedotmack'];
+  if (settings.enabledPlugins?.['kioku@thedotmack'] !== undefined) {
+    delete settings.enabledPlugins['kioku@thedotmack'];
     dirty = true;
   }
 
@@ -150,7 +149,18 @@ export function removeFromClaudeSettings(): void {
   // (ANTHROPIC_AUTH_TOKEN, AWS_REGION, etc.) are preserved. If the env
   // block becomes empty as a result, the block itself is dropped to keep
   // settings.json tidy.
-  if (clearClaudeAutoMemoryOverride(settings)) dirty = true;
+  if (settings.env && typeof settings.env === 'object' && !Array.isArray(settings.env)) {
+    if (
+      Object.prototype.hasOwnProperty.call(settings.env, 'CLAUDE_CODE_DISABLE_AUTO_MEMORY') &&
+      settings.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY === '1'
+    ) {
+      delete settings.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
+      dirty = true;
+      if (Object.keys(settings.env).length === 0) {
+        delete settings.env;
+      }
+    }
+  }
 
   if (dirty) {
     writeJsonFileAtomic(claudeSettingsPath(), settings);
@@ -474,10 +484,6 @@ export async function runUninstallCommand(): Promise<void> {
     { label: 'Copilot CLI MCP server', fn: async () => {
       const { uninstallCopilotCliMcpIntegration } = await import('../../services/integrations/McpIntegrations.js');
       return uninstallCopilotCliMcpIntegration();
-    }},
-    { label: 'Warp MCP server', fn: async () => {
-      const { uninstallWarpMcpIntegration } = await import('../../services/integrations/McpIntegrations.js');
-      return uninstallWarpMcpIntegration();
     }},
     { label: 'OpenCode plugin', fn: async () => {
       const { uninstallOpenCodePlugin } = await import('../../services/integrations/OpenCodeInstaller.js');

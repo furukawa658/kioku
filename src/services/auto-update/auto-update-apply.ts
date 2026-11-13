@@ -173,7 +173,7 @@ export interface InstallVersionsRead {
   resolved: string | null;
   /**
    * The versions of the registration the npx installer writes for
-   * claude-mem@thedotmack in Claude Code's installed_plugins.json, its
+   * kioku@thedotmack in Claude Code's installed_plugins.json, its
    * user-scope entries (prune-cache.ts readUserScopeRegisteredCacheVersions).
    * Project- and local-scope entries are left out: no installer run writes them.
    */

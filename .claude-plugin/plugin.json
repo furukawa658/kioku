@@ -1,9 +1,9 @@
 {
-  "name": "claude-mem",
-  "version": "15.18.3",
+  "name": "kioku",
+  "version": "15.16.0",
   "description": "Persistent memory for AI coding agents: the next session starts where the last one left off. Works with Claude Code, Codex, Cursor, OpenCode and more.",
   "author": {
-    "name": "Alex Newman"
+    "name": "Alex Newman, furukawa658"
   },
   "repository": "https://github.com/thedotmack/claude-mem",
   "license": "Apache-2.0",
