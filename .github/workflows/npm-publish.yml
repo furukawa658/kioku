@@ -3,7 +3,7 @@ name: Publish to npm
 on:
   push:
     tags:
-      - 'v*'
+      - 'v[0-9]*'
 
 # npm trusted publishing (OIDC): no NPM_TOKEN secret. The package's trusted
 # publisher on npmjs.com names this repo and this workflow file.
