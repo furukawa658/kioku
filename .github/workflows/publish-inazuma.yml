@@ -1,0 +1,57 @@
+name: Publish verified InazumaPwsh 0.2.0
+
+on:
+  push:
+    branches: ['release/inazuma-pwsh-0.2.0']
+    paths: ['.github/workflows/publish-inazuma.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-inazuma-pwsh-0.2.0
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'furukawa658/kioku' && github.actor == 'furukawa658'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Download and verify the approved release
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expectedSource = 'de968d090737c80a7153824e0f1e8763f70388e0'
+          $expectedVsix = '8a0d7a372de72899a9c013a8d338727b076c0d4c38b4afbaa158326f09c34dbf'
+          $tag = Invoke-RestMethod 'https://api.github.com/repos/furukawa658/inazuma-pwsh/git/ref/tags/v0.2.0'
+          if ($tag.object.sha -ne $expectedSource) { throw 'Source tag mismatch' }
+          $vsix = Join-Path $env:RUNNER_TEMP 'inazuma-pwsh-0.2.0-win32-x64.vsix'
+          Invoke-WebRequest 'https://github.com/furukawa658/inazuma-pwsh/releases/download/v0.2.0/inazuma-pwsh-0.2.0-win32-x64.vsix' -OutFile $vsix
+          if ((Get-FileHash $vsix -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedVsix) { throw 'VSIX hash mismatch' }
+          $inspect = Join-Path $env:RUNNER_TEMP 'inazuma-inspect'
+          [System.IO.Compression.ZipFile]::ExtractToDirectory($vsix, $inspect)
+          $manifest = Get-Content (Join-Path $inspect 'extension/package.json') -Raw | ConvertFrom-Json
+          if ($manifest.name -ne 'inazuma-pwsh' -or $manifest.publisher -ne 'ShunsukeF' -or $manifest.version -ne '0.2.0') { throw 'Extension identity mismatch' }
+          $server = Join-Path $inspect 'extension/server/win-x64'
+          if ((Get-ChildItem $server -File).Count -ne 2) { throw 'Unexpected server payload' }
+          if ((Get-FileHash (Join-Path $server 'InazumaPwsh.exe')).Hash.ToLowerInvariant() -ne '0d02b8f2498a996d9281b60988f0a3c10325eb73b97e7681f53ba8dee6eef972') { throw 'Executable hash mismatch' }
+          if ((Get-FileHash (Join-Path $server 'powershell-worker.ps1')).Hash.ToLowerInvariant() -ne '23e64ddebefb50cc2024b52dcc9c5fcda6c33ef6fd2d0f2d38bb4193ffe53b19') { throw 'Worker hash mismatch' }
+          if (!(Test-Path (Join-Path $inspect 'extension/THIRD-PARTY-NOTICES.txt'))) { throw 'Third-party notices missing' }
+          "VERIFIED_VSIX_SHA256=$expectedVsix" >> $env:GITHUB_STEP_SUMMARY
+      - name: Install pinned publishing tool without lifecycle scripts
+        run: |
+          npm install --global @vscode/vsce@3.6.2 --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Publish the verified VSIX
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VSCE_PAT)) { throw 'VSCE_PAT is not configured' }
+          vsce publish --packagePath (Join-Path $env:RUNNER_TEMP 'inazuma-pwsh-0.2.0-win32-x64.vsix')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
