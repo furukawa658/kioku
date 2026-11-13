@@ -27,7 +27,7 @@ jobs:
       - run: npm run build
       - run: npm test
       - run: npx @vscode/vsce package --target win32-x64 --no-dependencies --allow-missing-repository
-      - run: node test/package-content.mjs
+      - run: node test/package-content.mjs (Get-ChildItem *.vsix).FullName
       - name: Publish
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
