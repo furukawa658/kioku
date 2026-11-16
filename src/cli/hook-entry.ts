@@ -17,7 +17,7 @@ import { logger } from '../utils/logger.js';
 
 async function main(): Promise<void> {
   if (isPluginDisabledInClaudeSettings()) {
-    logger.info('SYSTEM', 'Worker not starting: claude-mem is disabled in Claude settings (enabledPlugins["claude-mem@thedotmack"] === false). Re-enable the plugin to resume memory capture.', {
+    logger.info('SYSTEM', 'Worker not starting: claude-mem is disabled in Claude settings (enabledPlugins["kioku@thedotmack"] === false). Re-enable the plugin to resume memory capture.', {
       command: 'hook',
       configDir: process.env.CLAUDE_CONFIG_DIR || '~/.claude',
     });

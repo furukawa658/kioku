@@ -9,6 +9,7 @@ import { getProjectContext } from '../../../../utils/project-name.js';
 import { isProjectExcluded } from '../../../../utils/project-filter.js';
 import { SettingsDefaultsManager } from '../../../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../../../shared/paths.js';
+import { MEMORY_OUTCOMES } from '../../../../shared/memory-lesson.js';
 import { isForeignLoopbackBrowserWrite } from './SettingsRoutes.js';
 
 const saveMemorySchema = z.object({
@@ -16,6 +17,9 @@ const saveMemorySchema = z.object({
   title: z.string().optional(),
   project: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  outcome: z.enum(MEMORY_OUTCOMES).optional(),
+  cause: z.string().optional(),
+  lesson: z.string().optional(),
   cwd: z.string().optional(),
 }).strict();
 

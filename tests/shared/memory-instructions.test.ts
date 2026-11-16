@@ -6,8 +6,23 @@ import {
   mcpServerInstructions,
   memoryInstructionsForRuntime,
 } from '../../src/shared/memory-instructions.js';
+import { LESSON_CONCEPT } from '../../src/shared/memory-lesson.js';
 
 describe('runtime-specific memory instructions', () => {
+  it('asks for the cause and the lesson, and names the concept that finds them', () => {
+    const text = memoryInstructionsForRuntime('worker');
+    expect(text).toContain('outcome, cause (why it succeeded or failed) and lesson');
+    expect(text).toContain(`search({concepts: "${LESSON_CONCEPT}"})`);
+  });
+  it('asks the agent to save reusable user corrections and standing instructions as scoped lessons', () => {
+    const text = memoryInstructionsForRuntime('worker');
+    expect(text).toContain('user corrections and standing instructions');
+    expect(text).toContain('applicability');
+    expect(text).toContain('Search for duplicates');
+    expect(text).toContain('one-off requests');
+    expect(text).toContain('lesson');
+    expect(text).toContain('search project "user-memory"');
+  });
   it('keeps worker recall on the three-step Smart workflow', () => {
     const text = memoryInstructionsForRuntime('worker');
     expect(text).toContain('Smart search by default');

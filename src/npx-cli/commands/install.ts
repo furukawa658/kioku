@@ -229,7 +229,7 @@ function claudeCodeBackgroundUpdateToRegister(existingEntry: unknown): unknown {
  *
  * Only the user-scope entry is this installer's (claude-code-plugin-paths.ts
  * isUserScopeRegistration): it replaces that one, where it was, or adds it
- * when there is none. Every other entry of claude-mem@thedotmack, a project's
+ * when there is none. Every other entry of kioku@thedotmack, a project's
  * or a local install Claude Code registered at a version of its own, is kept
  * exactly as read and in its place, so an update, including an unattended
  * one the auto-updater runs, never unregisters it. Any further user-scope
@@ -251,10 +251,10 @@ export function registerPlugin(version: string): void {
     lastUpdated: now,
   };
 
-  const registered: unknown = installedPlugins.plugins['claude-mem@thedotmack'];
+  const registered: unknown = installedPlugins.plugins['kioku@thedotmack'];
   const entriesAsRead: unknown[] = Array.isArray(registered) ? registered : [];
   const userScopeIndex = entriesAsRead.findIndex(isUserScopeRegistration);
-  installedPlugins.plugins['claude-mem@thedotmack'] = userScopeIndex === -1
+  installedPlugins.plugins['kioku@thedotmack'] = userScopeIndex === -1
     ? [...entriesAsRead, userScopeEntry]
     : entriesAsRead.flatMap((entry, index) => {
         if (index === userScopeIndex) return [userScopeEntry];
@@ -268,7 +268,7 @@ function enablePluginInClaudeSettings(): void {
   const settings = readJsonSafe<Record<string, any>>(claudeSettingsPath(), {});
 
   if (!settings.enabledPlugins) settings.enabledPlugins = {};
-  settings.enabledPlugins['claude-mem@thedotmack'] = true;
+  settings.enabledPlugins['kioku@thedotmack'] = true;
 
   writeJsonFileAtomic(claudeSettingsPath(), settings);
 }

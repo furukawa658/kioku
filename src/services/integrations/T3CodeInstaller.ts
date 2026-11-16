@@ -12,7 +12,7 @@ import { readJsonFileWithBom, writeJsonFileAtomic } from '../../shared/atomic-js
 import { buildSpawnSyncInvocation, lookupWindowsCommand } from '../../shared/spawn.js';
 import { disableCodexPluginForHome, installCodexPluginForHome } from './CodexCliInstaller.js';
 
-const CLAUDE_PLUGIN = 'claude-mem@thedotmack';
+const CLAUDE_PLUGIN = 'kioku@thedotmack';
 const CODEX_PLUGIN = 'claude-mem@claude-mem-local';
 type Driver = 'codex' | 'claudeAgent';
 type Document = Record<string, unknown>;

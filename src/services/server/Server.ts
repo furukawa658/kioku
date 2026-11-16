@@ -450,6 +450,7 @@ export class Server {
         status: queueDegraded ? 'degraded' : 'ok',
         ...(this.options.runtime ? { runtime: this.options.runtime } : {}),
         version: BUILT_IN_VERSION,
+        localVectorSearch: process.env.KIOKU_SQLITE_VEC_ENABLED === 'true',
         workerPath: this.options.workerPath,
         uptime: getUptimeSeconds(this.startTime),
         managed: process.env.CLAUDE_MEM_MANAGED === 'true',

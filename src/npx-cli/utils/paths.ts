@@ -23,7 +23,7 @@ export function claudeSettingsPath(): string {
 }
 
 export function pluginCacheRootDirectory(): string {
-  return join(pluginsDirectory(), 'cache', 'thedotmack', 'claude-mem');
+  return join(pluginsDirectory(), 'cache', 'thedotmack', 'kioku');
 }
 
 export function pluginCacheDirectory(version: string): string {

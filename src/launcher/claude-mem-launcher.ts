@@ -143,7 +143,7 @@ function isPluginDisabledInClaudeSettings(): boolean {
     return Boolean(
       settings &&
       settings.enabledPlugins &&
-      settings.enabledPlugins['claude-mem@thedotmack'] === false
+      settings.enabledPlugins['kioku@thedotmack'] === false
     );
   } catch {
     return false;

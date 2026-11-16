@@ -18,7 +18,7 @@
 export interface EmbeddingModel {
   /** Hugging Face repository transformers.js loads. */
   repo: string;
-  dtype: 'fp32';
+  dtype: 'fp32' | 'q8';
   /** mean: the average over real tokens; cls: the first token's vector. */
   pooling: 'mean' | 'cls';
   /** Vector length; sizes the server's vector(n) column. */
@@ -80,6 +80,10 @@ export const EMBEDDING_MODELS = {
 } satisfies Record<string, EmbeddingModel>;
 
 export const DEFAULT_EMBEDDING_MODEL: EmbeddingModel = EMBEDDING_MODELS['all-MiniLM-L6-v2'];
+
+export const LOCAL_EMBEDDING_MODEL: EmbeddingModel = {
+  ...EMBEDDING_MODELS['multilingual-e5-small'], dtype: 'q8',
+};
 
 /** The model a CLAUDE_MEM_EMBEDDING_MODEL value names; an unknown name is an error. */
 export function resolveEmbeddingModel(name: string): EmbeddingModel {

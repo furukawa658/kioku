@@ -50,3 +50,19 @@ test('large file histories retain every metadata match and the semantic prefix',
   assert.deepEqual(result.observations.slice(0, 5).map(row => row.id), [50000, 3, 1, 2, 4]);
   assert.equal(new Set(result.observations.map(row => row.id)).size, ids.length);
 });
+
+test('semantic ordering reads hydrated ids only linearly', async () => {
+  const ids = Array.from({ length: 50000 }, (_, index) => index + 1);
+  let idReads = 0;
+  const f = fixture(ids, [50000, 3, 1], requested => requested.map((_, index) => requested[(index * 7919) % requested.length]).map(id => ({
+    get id() { idReads++; return id; },
+    created_at_epoch: id,
+  })));
+  const started = performance.now();
+  const result = await f.strategy.findByFile('src/main.ts', { limit: ids.length });
+  const elapsed = performance.now() - started;
+  const orderingIdReads = idReads;
+  assert.deepEqual(result.observations.map(row => row.id), [50000, 3, 1, ...ids.filter(id => ![50000, 3, 1].includes(id))]);
+  console.log(`ranking: ${elapsed.toFixed(2)} ms, ${orderingIdReads} hydrated id reads`);
+  assert.ok(orderingIdReads <= ids.length * 2, `expected linear id reads, got ${orderingIdReads}`);
+});

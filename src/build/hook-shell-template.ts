@@ -139,7 +139,7 @@ function candidateBlock(options: ShellTemplateOptions): string {
   }
 
   const extraCacheRoots = isMcp && options.mcpExtraCacheRoots ? options.mcpExtraCacheRoots : [];
-  const allGlobs = [...extraCacheRoots, '$_C/plugins/cache/thedotmack/claude-mem']
+  const allGlobs = [...extraCacheRoots, '$_C/plugins/cache/thedotmack/kioku']
     .map((root) => `"${root}"/[0-9]*/`)
     .join(' ');
   // Cache dirs ranked by VERSION descending (zero-padded major.minor.patch
@@ -239,7 +239,7 @@ function buildMcpNodeLauncher(options: ShellTemplateOptions): string {
   const candidates = (options.mcpExtraCandidates ?? []).map(shTokenToNode);
   const cacheRoots = [
     ...(options.mcpExtraCacheRoots ?? []),
-    '$_C/plugins/cache/thedotmack/claude-mem',
+    '$_C/plugins/cache/thedotmack/kioku',
   ].map(shTokenToNode);
   const marketplace = shTokenToNode('$_C/plugins/marketplaces/thedotmack/plugin');
   const require = JSON.stringify(options.requireFile);
@@ -322,7 +322,7 @@ export function buildCodexWindowsCommand(
     "const roots=[];",
     "for(const v of [process.env.CLAUDE_PLUGIN_ROOT,process.env.PLUGIN_ROOT])if(v)roots.push(v);",
     ...hostRootCount,
-    "const cache=p.join(C,'plugins','cache','thedotmack','claude-mem');",
+    "const cache=p.join(C,'plugins','cache','thedotmack','kioku');",
     // S/W mirror compareVersionsDescending in src/shared/worker-utils.ts and
     // the filter skips .orphaned_at-stamped cache dirs, same as
     // cacheWorkerScriptCandidates — every resolver ranking candidates

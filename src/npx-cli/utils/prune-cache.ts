@@ -392,7 +392,7 @@ export function readRegisteredCacheVersions(registryPath: string = installedPlug
 /**
  * The cache version directories of the one registration the npx installer
  * writes, and every `npx claude-mem update` replaces (install.ts
- * registerPlugin): claude-mem@thedotmack's user-scope entries. Claude Code can
+ * registerPlugin): kioku@thedotmack's user-scope entries. Claude Code can
  * also hold project- or local-scope entries for claude-mem, each at a version
  * of its own, which no npx run writes; the auto-updater reads only this one,
  * so another scope's version never reads as the install having moved

@@ -29,6 +29,7 @@ import { ResultFormatter } from './search/ResultFormatter.js';
 import { ChromaUnavailableError } from './search/errors.js';
 import { buildProjectWhereFilter, projectReadKeysFor } from './search/project-where-filter.js';
 import { scopeRowIdsFor } from './search/scope-row-ids.js';
+import { createLocalVectorSearch, type SQLiteVecSearch } from '../vector/SQLiteVecSearch.js';
 
 /**
  * Ceiling for `depth_before` / `depth_after` on the timeline route. Every unit
@@ -70,13 +71,15 @@ export class SearchManager {
      */
     private searchRecencyWindowMs: number = SEARCH_CONSTANTS.RECENCY_WINDOW_MS,
     private contextReader: ContextReadWorkerClient | null = null,
-    private deepReader: DeepSearchExecutor | null = null
+    private deepReader: DeepSearchExecutor | null = null,
+    private readonly localSearch: SQLiteVecSearch | null = createLocalVectorSearch(sessionSearch, sessionStore)
   ) {
     this.orchestrator = new SearchOrchestrator(
       sessionSearch,
       sessionStore,
       chromaSync,
-      searchRecencyWindowMs
+      searchRecencyWindowMs,
+      localSearch
     );
   }
 
@@ -514,6 +517,7 @@ export class SearchManager {
     let sessions: SessionSummarySearchResult[] = [];
     let prompts: UserPromptSearchResult[] = [];
     let chromaFailed = false;
+    let localStrategy: StrategySearchResult['strategy'] | undefined;
     let chromaSupplementStrategy: StrategySearchResult['strategy'] = 'chroma';
     let chromaFailureReason: { message: string; isConnectionError: boolean } | null = null;
 
@@ -552,6 +556,12 @@ export class SearchManager {
       if (searchPrompts) {
         prompts = this.sessionSearch.searchUserPrompts(undefined, options);
       }
+    }
+    else if (this.localSearch) {
+      const local = await this.localSearch.search({ ...options, query, searchType: category ?? 'all',
+        obsType: effectiveObsType, concepts, files });
+      ({ observations, sessions, prompts } = local.results);
+      localStrategy = local.strategy;
     }
     // PATH 2: CHROMA SEMANTIC SEARCH (query text + Chroma available)
     else if (this.chromaSync) {
@@ -693,6 +703,9 @@ export class SearchManager {
       if (!query) {
         // PATH 1: filter-only SQLite (no query text; Chroma never consulted)
         searchStrategy = 'filter_only';
+        fallbackReason = 'none';
+      } else if (localStrategy) {
+        searchStrategy = localStrategy === 'hybrid' ? 'hybrid' : 'fts';
         fallbackReason = 'none';
       } else if (this.chromaSync) {
         // PATH 2: Chroma semantic search. FTS5 answers alone on a Chroma error

@@ -1,5 +1,7 @@
 import type { Embedder } from './types.js';
 import { DEFAULT_EMBEDDING_MODEL, type EmbeddingModel } from './models.js';
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
 
 /**
  * Documents per forward pass.
@@ -71,11 +73,23 @@ export class LocalEmbedder implements Embedder {
     if (this.failed && Date.now() - this.failed.at < LOAD_RETRY_MS) throw this.failed.error;
     if (!this.loading) {
       this.loading = (async () => {
-        const { AutoModel, AutoTokenizer } = await import('@huggingface/transformers');
+        const bundledModule = process.env.KIOKU_EMBEDDING_MODULE;
+        const { AutoModel, AutoTokenizer, env } = bundledModule
+          ? await import(pathToFileURL(bundledModule).href)
+          : await import('@huggingface/transformers');
+        const modelRoot = process.env.KIOKU_EMBEDDING_MODEL_ROOT;
+        if (bundledModule) {
+          if (!modelRoot) throw new Error('Missing bundled embedding model root');
+          env.allowRemoteModels = false;
+          env.allowLocalModels = true;
+          env.localModelPath = modelRoot.replaceAll(path.sep, '/') + '/';
+          env.useFSCache = false;
+        }
         this.extractor = {
-          tokenizer: await AutoTokenizer.from_pretrained(this.model.repo),
+          tokenizer: await AutoTokenizer.from_pretrained(this.model.repo, bundledModule ? { local_files_only: true } : {}),
           model: await AutoModel.from_pretrained(this.model.repo, {
             dtype: this.model.dtype,
+            ...(bundledModule ? { local_files_only: true } : {}),
             ...(this.threads ? { session_options: { intraOpNumThreads: this.threads } } : {}),
           }),
         };

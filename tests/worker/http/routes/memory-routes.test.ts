@@ -196,4 +196,36 @@ describe('MemoryRoutes — POST /api/memory/save (#2116)', () => {
 
     expect(storeObservationCalls[0][2].title).toBe('My Title');
   });
+
+  it('stores outcome, cause and lesson in the narrative and tags the note as a lesson', () => {
+    const handler = buildHandler();
+    const { req, res } = createMockReqRes({
+      text: 'The export stopped at row 129.', outcome: 'failure',
+      cause: ' A row inserted upstream shifted every later row. ', lesson: 'Re-read the latest file before posting.',
+    });
+    handler(req as Request, res as Response);
+
+    const observationArg = storeObservationCalls[0][2];
+    expect(observationArg.narrative).toBe('The export stopped at row 129.\n\nOutcome: Failed\nCause: A row inserted upstream shifted every later row.\nLesson: Re-read the latest file before posting.');
+    expect(observationArg.concepts).toEqual(['lesson', 'outcome-failure']);
+    expect(observationArg.title).toBe('The export stopped at row 129.');
+  });
+
+  it('leaves a plain note unchanged when the lesson fields are absent or blank', () => {
+    const handler = buildHandler();
+    const { req, res } = createMockReqRes({ text: 'hello', cause: '  ', lesson: '' });
+    handler(req as Request, res as Response);
+
+    expect(storeObservationCalls[0][2].narrative).toBe('hello');
+    expect(storeObservationCalls[0][2].concepts).toEqual([]);
+  });
+
+  it('rejects an outcome outside the defined list with HTTP 400', () => {
+    const handler = buildHandler();
+    const { req, res, statusSpy } = createMockReqRes({ text: 'hello', outcome: 'done' });
+    handler(req as Request, res as Response);
+
+    expect(statusSpy).toHaveBeenCalledWith(400);
+    expect(mockStoreObservation).not.toHaveBeenCalled();
+  });
 });

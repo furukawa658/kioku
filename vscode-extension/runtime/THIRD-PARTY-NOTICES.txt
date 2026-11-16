@@ -1,0 +1,11 @@
+kioku 15.16.0
+Bun 1.4.4 (MIT; includes separately licensed components)
+Local SQLite vector search and offline multilingual embeddings included. Remote server authentication and code parsing are not included.
+onnxruntime-node@1.23.2: MIT
+onnxruntime-common@1.23.2: MIT
+sharp@0.35.5: Apache-2.0
+@img/colour@1.1.0: MIT
+@img/sharp-win32-x64@0.35.5: Apache-2.0 AND LGPL-3.0-or-later
+detect-libc@2.1.2: Apache-2.0
+semver@7.8.5: ISC
+Model: Xenova/multilingual-e5-small@761b726dd34fb83930e26aab4e9ac3899aa1fa78; intfloat/multilingual-e5-small (MIT), q8, 384 dimensions. See model cards and MIT license.

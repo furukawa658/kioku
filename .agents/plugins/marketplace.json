@@ -1,11 +1,11 @@
 {
   "name": "claude-mem-local",
   "interface": {
-    "displayName": "claude-mem (local)"
+    "displayName": "kioku (local)"
   },
   "plugins": [
     {
-      "name": "claude-mem",
+      "name": "kioku",
       "source": {
         "source": "local",
         "path": "./plugin"

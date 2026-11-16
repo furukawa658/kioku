@@ -5,12 +5,16 @@ import { notifyGrokBotIndex } from '../integrations/GrokBotIndexWriter.js';
 import { notifyNotion } from '../integrations/NotionExporter.js';
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource } from '../../shared/platform-source.js';
 import { retainTextHeadTail } from '../../shared/text-truncation.js';
+import { LESSON_CONCEPT, MEMORY_OUTCOME_LABELS, memoryOutcomeConcept, type MemoryOutcome } from '../../shared/memory-lesson.js';
 
 export interface SaveMemoryInput {
   text: string;
   title?: string;
   project?: string;
   metadata?: Record<string, unknown>;
+  outcome?: MemoryOutcome;
+  cause?: string;
+  lesson?: string;
 }
 
 /** Shared by explicit MCP notes and the opt-in file bridge; no LLM call. */
@@ -42,9 +46,17 @@ function persistMemory(dbManager: DatabaseManager, defaultProject: string, input
   }
   const store = dbManager.getSessionStore();
   const sessionId = store.getOrCreateManualSession(project, platformSource);
+  const cause = input.cause?.trim(), lesson = input.lesson?.trim();
+  // The content hash covers title and narrative only, so a revised cause or lesson must change the narrative.
+  const narrative = [text, [
+    input.outcome ? `Outcome: ${MEMORY_OUTCOME_LABELS[input.outcome]}` : '',
+    cause ? `Cause: ${cause}` : '',
+    lesson ? `Lesson: ${lesson}` : '',
+  ].filter(Boolean).join('\n')].filter(Boolean).join('\n\n');
+  const concepts = [...(lesson ? [LESSON_CONCEPT] : []), ...(input.outcome ? [memoryOutcomeConcept(input.outcome)] : [])];
   const observation = {
     type: 'discovery', title: title?.trim() || retainTextHeadTail(text, 60, 0).head.trim() + (text.length > 60 ? '...' : ''),
-    subtitle: 'Manual memory', facts: [] as string[], narrative: text, concepts: [] as string[],
+    subtitle: 'Manual memory', facts: [] as string[], narrative, concepts,
     files_read: [] as string[], files_modified: [] as string[], metadata: metadata ? JSON.stringify(metadata) : null,
   };
   // A person can reuse a note title while changing its facts. Keep exact

@@ -75,15 +75,19 @@ export class HybridSearchStrategy {
       }
 
       const dateOrder = options.orderBy === 'date_asc' || options.orderBy === 'date_desc' ? options.orderBy : undefined;
-      const observations = this.sessionStore.getObservationsByIds(rankedIds, {
+      let observations = this.sessionStore.getObservationsByIds(rankedIds, {
         orderBy: dateOrder ?? 'relevance',
         limit: options.limit,
         ...(options.readKeys.length > 0 ? { projects: options.readKeys } : {}),
         platformSource: options.platformSource
       });
       if (!dateOrder) {
-        const rankById = new Map(rankedIds.map((id, index) => [id, index]));
-        observations.sort((a, b) => (rankById.get(a.id) ?? -1) - (rankById.get(b.id) ?? -1));
+        const observationsById = new Map(observations.map(row => [row.id, row]));
+        observations = [];
+        for (const id of rankedIds) {
+          const observation = observationsById.get(id);
+          if (observation) observations.push(observation);
+        }
       }
 
       return { observations, sessions, usedChroma: true };

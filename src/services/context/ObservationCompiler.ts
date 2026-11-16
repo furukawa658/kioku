@@ -106,8 +106,8 @@ export function queryObservationsMulti(
  * house-fallback query param to `/api/context/inject`.
  *
  * `includeManualSaves` also admits rows from `/api/memory/save` (session
- * `manual-<project>`), which are stored with no concepts and so never pass the
- * mode concept filter. The Grok Bot seat query sets it so seat self-saves land
+ * `manual-<project>`), which are stored with no mode concepts and so never pass
+ * the mode concept filter. The Grok Bot seat query sets it so seat self-saves land
  * in the live INDEX.
  */
 export function queryObservationsNewest(

@@ -33,10 +33,10 @@ export function installedPluginsPath(): string {
 }
 
 /** claude-mem's key in installed_plugins.json (install.ts registerPlugin). */
-const CLAUDE_MEM_PLUGIN_KEY = 'claude-mem@thedotmack';
+const CLAUDE_MEM_PLUGIN_KEY = 'kioku@thedotmack';
 
 /**
- * Every entry of claude-mem@thedotmack in installed_plugins.json, of any
+ * Every entry of kioku@thedotmack in installed_plugins.json, of any
  * scope; none for a missing file. Read with readJsonSafe, as install.ts
  * registerPlugin reads it, so a file that does not parse throws.
  */
@@ -54,7 +54,7 @@ export function registeredInstallPathsOf(entries: unknown[]): string[] {
 }
 
 /**
- * Whether an entry of claude-mem@thedotmack is its user-scope one: the entry
+ * Whether an entry of kioku@thedotmack is its user-scope one: the entry
  * install.ts registerPlugin writes on every install of every host, and the
  * only one it replaces. Claude Code writes the project- and local-scope ones
  * (`scope` 'project' or 'local', with a projectPath).

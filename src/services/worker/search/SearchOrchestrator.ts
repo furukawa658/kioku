@@ -66,6 +66,8 @@ export function assertSearchHasQueryOrFilter(input: SearchRequestInput): void {
   }
 }
 
+import type { SQLiteVecSearch } from '../../vector/SQLiteVecSearch.js';
+
 export class SearchOrchestrator {
   private chromaStrategy: ChromaSearchStrategy | null = null;
   private sqliteStrategy: SQLiteSearchStrategy;
@@ -81,7 +83,8 @@ export class SearchOrchestrator {
      * Chroma strategy; corpus builds bypass it per request via
      * `ignoreDefaultRecencyWindow`.
      */
-    private defaultRecencyWindowMs: number = SEARCH_CONSTANTS.RECENCY_WINDOW_MS
+    private defaultRecencyWindowMs: number = SEARCH_CONSTANTS.RECENCY_WINDOW_MS,
+    private readonly localSearch: SQLiteVecSearch | null = null
   ) {
     this.sqliteStrategy = new SQLiteSearchStrategy(sessionSearch);
 
@@ -111,6 +114,7 @@ export class SearchOrchestrator {
     // original options for Chroma, which performs its own single expansion.
     const readKeys = projectReadKeysFor(this.sessionStore, options.project, options.projects);
     const sqliteOptions = { ...options, projects: readKeys.length > 0 ? readKeys : undefined };
+    if (this.localSearch) return this.localSearch.search(sqliteOptions);
     if (!options.query) {
       logger.debug('SEARCH', 'Orchestrator: Filter-only query, using SQLite', {});
       return await this.sqliteStrategy.search(sqliteOptions);

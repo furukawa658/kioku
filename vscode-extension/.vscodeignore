@@ -1,0 +1,9 @@
+test/**
+node_modules/**
+package-lock.json
+*.vsix
+build.mjs
+render-icon.mjs
+stage-runtime.mjs
+stage-semantic.mjs
+GATES.md
