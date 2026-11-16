@@ -31,6 +31,8 @@ function runtimeOptions(extensionPath, configured = '', env = process.env) {
       CLAUDE_MEM_TRANSCRIPTS_ENABLED: 'false',
       CLAUDE_MEM_AUTO_UPDATE: 'false',
       CLAUDE_MEM_WORK_VIEW_AGENT: 'off',
+      CLAUDE_MEM_WORK_VIEW_AUTO_REFRESH: 'false',
+      KIOKU_EXTENSION_TOOLS: '1',
       CLAUDE_MEM_WORK_VIEW_COPY_PROVIDER: 'off',
       CLAUDE_MEM_QUOTA_FALLBACK_PROVIDER: 'off',
       DO_NOT_TRACK: '1',

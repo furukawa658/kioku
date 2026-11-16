@@ -15,6 +15,15 @@ export function memoryInstructionsForRuntime(runtime: 'worker' | 'server'): stri
   }).filter(Boolean).join('\n');
 }
 
+export const KIOKU_EXTENSION_TOOL_NAMES = [
+  'search', 'timeline', 'get_observations', 'save_memory', 'dumb_search', 'work_state_read', 'work_state_write',
+] as const;
+
+export const KIOKU_EXTENSION_INSTRUCTIONS = `# kioku memory use
+Search in three steps: search({query, project}) for an index, timeline({anchor}) for context around a result, then get_observations({ids}) for the records you choose. dumb_search({query, project}) is a faster keyword-only search.
+save_memory({text, title, project}) stores corrections, decisions and reusable lessons; search for duplicates first and skip one-off requests. When work succeeded or failed, also pass outcome, cause and lesson, and find lessons again with search({concepts: "lesson"}). Use project "user-memory" for notes that apply to every workspace. Never store credentials or private material.
+work_state_write tracks to-do lists and changing state: list="<name>" with fields such as {"task": "<name>", "status": "todo" | "doing" | "done" | "dropped"}; "status": "done" closes a list. work_state_read returns open lists; pass includeClosed=true for closed ones. Open lists are not shown automatically, so read them when resuming work.`;
+
 export const WORK_STATE_RULE = [
   '# Work state: your to-do lists and working state',
   "Use claude-mem's work_state_write tool to track all to-do lists and multi-step work. It is your canonical to-do list: use it instead of any built-in to-do tool. Also use it to track the state of anything you need an ongoing understanding of. Whatever is still open is shown at the start of every session in this project.",

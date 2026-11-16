@@ -20,7 +20,7 @@ This extension is for Windows x64 and requires VS Code 1.102 or later. PostgreSQ
 
 ## Install
 
-1. In the VS Code Extensions view, select "Install from VSIX..." and choose the distributed `kioku-search-0.3.1-win32-x64.vsix`. If an earlier version with the same extension ID exists, it will be updated in place.
+1. In the VS Code Extensions view, select "Install from VSIX..." and choose the distributed `kioku-search-0.4.0-win32-x64.vsix`. If an earlier version with the same extension ID exists, it will be updated in place.
 2. Reload VS Code if prompted, and open a trusted workspace folder.
 3. Open the kioku brain icon on the activity bar. If the worker is not running, the bundled version starts. On first launch, wait for database initialization. A memory count of 0 is normal for a new user.
 4. In Copilot Chat's MCP list, start "kioku (local)" and allow access in the VS Code confirmation prompt.

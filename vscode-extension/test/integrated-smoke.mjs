@@ -41,9 +41,10 @@ try {
   transport.stderr?.on('data', chunk => { diagnostics = (diagnostics + chunk).slice(-6000); });
   const client = new Client({ name: 'kioku-isolated-smoke', version: '1.0.0' });
   await client.connect(transport);
-  assert.match(client.getInstructions(), /user corrections and standing instructions/);
-  assert.match(client.getInstructions(), /search project "user-memory"/);
+  assert.match(client.getInstructions(), /corrections, decisions and reusable lessons/);
+  assert.match(client.getInstructions(), /project "user-memory"/);
   const { tools } = await client.listTools();
+  assert.deepEqual(tools.map(tool => tool.name).sort(), ['dumb_search', 'get_observations', 'save_memory', 'search', 'timeline', 'work_state_read', 'work_state_write']);
   for (const name of ['save_memory', 'search', 'get_observations']) assert.ok(tools.some(tool => tool.name === name), name);
   const marker = `KIOKU_SMOKE_${Date.now()}`;
   const saved = await client.callTool({ name: 'save_memory', arguments: { text: `${marker} SQLiteデータベースのバックアップを作成して復元を確認する。`, title: marker, project: 'kioku-distribution-smoke', lesson: 'バックアップ後に復元を確認する。' } });

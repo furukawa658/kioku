@@ -5,6 +5,7 @@ const require = createRequire(import.meta.url);
 const yauzl = require('yauzl');
 const archive = process.argv[2];
 if (!archive) throw new Error('Pass the Windows x64 VSIX path.');
+const archiveBytes = (await import('node:fs')).statSync(archive).size;
 const entries = new Map();
 await new Promise((resolve, reject) => {
   yauzl.open(archive, { lazyEntries: true }, (error, zip) => {
@@ -31,7 +32,12 @@ for (const name of ['runtime/bun.exe', 'runtime/scripts/worker-service.cjs', 'ru
 }
 assert.ok(!entries.has('extension/runtime/semantic/vec0.dll'), 'vec0.dll must not be bundled');
 const pkg = JSON.parse(entries.get('extension/package.json'));
-assert.equal(pkg.version, '0.3.1');
+assert.equal(pkg.version, '0.4.0');
+for (const name of ['DirectML.dll', 'dxcompiler.dll', 'dxil.dll']) {
+  assert.ok(![...entries.keys()].some(file => file.endsWith(`/${name}`)), `${name} must not be bundled`);
+}
+assert.ok(![...entries.keys()].some(file => file.includes('/node_modules/@img/')), 'sharp binaries must not be bundled');
+assert.ok(archiveBytes <= 160 * 1048576, `VSIX too large: ${archiveBytes}`);
 assert.equal(pkg.publisher.toLowerCase(), 'shunsukef');
 assert.equal(pkg.contributes.configuration.properties['kioku.copilotEnabled'].default, false);
 assert.equal(pkg.contributes.mcpServerDefinitionProviders[0].id, 'kioku.local');
