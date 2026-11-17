@@ -42,6 +42,12 @@ jobs:
           code=$?
           if [ $code -ne 0 ]; then grep -E '^\s*not ok|error:|Error' test.log | head -15 | sed 's/^/::error::/'; fi
           exit $code
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-log-${{ matrix.target }}
+          path: ${{ github.workspace }}/vscode-extension/test.log
+          if-no-files-found: warn
       - run: npx @vscode/vsce package --target ${{ matrix.target }} --no-dependencies --allow-missing-repository
       - name: Verify package content
         shell: bash
