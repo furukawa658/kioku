@@ -70,6 +70,12 @@ try {
     }
   }
   $key.Dispose()
+  # The append script broadcast the scratch Path; without a new broadcast Explorer keeps it after the raw restore.
+  Add-Type -Namespace ClaudeMemTest -Name NativeEnvironment -MemberDefinition '[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wParam, string lParam, uint flags, uint timeout, out UIntPtr result);'
+  $broadcastResult = [UIntPtr]::Zero
+  if ([ClaudeMemTest.NativeEnvironment]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$broadcastResult) -eq [IntPtr]::Zero) {
+    throw 'Failed to broadcast the restored user Path'
+  }
   if ($hadBackup) { [IO.File]::WriteAllBytes($backup, $backupBytes) }
   else { Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue }
   if (-not $hadBackupDir -and -not (Get-ChildItem -LiteralPath $backupDir -Force)) {
