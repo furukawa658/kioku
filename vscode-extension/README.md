@@ -56,7 +56,7 @@ This extension supports Windows x64, macOS (Intel and Apple silicon) and Linux (
 
 ## Install
 
-1. Install from the Marketplace (`ext install ShunsukeF.kioku-search`). To install a file instead, select "Install from VSIX..." in the Extensions view and choose the VSIX for your platform, for example `kioku-search-win32-x64-0.4.2.vsix`. If an earlier version with the same extension ID exists, it will be updated in place.
+1. Install from the Marketplace (`ext install ShunsukeF.kioku-search`). To install a file instead, select "Install from VSIX..." in the Extensions view and choose the VSIX for your platform, for example `kioku-search-win32-x64-0.4.3.vsix`. If an earlier version with the same extension ID exists, it will be updated in place.
 2. Reload VS Code if prompted, and open a trusted workspace folder.
 3. Open the kioku brain icon on the activity bar. If the worker is not running, the bundled version starts. On first launch, wait for database initialization. A memory count of 0 is normal for a new user.
 4. In Copilot Chat's MCP list, start "kioku (local)" and allow access in the VS Code confirmation prompt.

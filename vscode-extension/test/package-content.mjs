@@ -32,7 +32,7 @@ for (const name of ['runtime/scripts/worker-service.cjs', 'runtime/scripts/mcp-s
 }
 assert.ok(!entries.has('extension/runtime/semantic/vec0.dll'), 'vec0.dll must not be bundled');
 const pkg = JSON.parse(entries.get('extension/package.json'));
-assert.equal(pkg.version, '0.4.2');
+assert.equal(pkg.version, '0.4.3');
 for (const name of ['DirectML.dll', 'dxcompiler.dll', 'dxil.dll']) {
   assert.ok(![...entries.keys()].some(file => file.endsWith(`/${name}`)), `${name} must not be bundled`);
 }
