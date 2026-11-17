@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -42,8 +42,22 @@ console.log(JSON.stringify(z.custom(v => typeof v === 'object').parse({ok: true}
         env: { ...process.env, DO_NOT_TRACK: '1', CLAUDE_MEM_DATA_DIR: join(dir, 'data'), CLAUDE_CONFIG_DIR: join(dir, 'config'), CLAUDE_MEM_WORKER_AUTOSTART: 'false' },
         input: JSON.stringify({ cwd: dir, hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: join(dir, 'absent.md') } }),
       });
-      expect(run.status).toBe(0);
+      expect(run.status, run.stderr).toBe(0);
       expect(JSON.parse(run.stdout)).toEqual({ continue: true });
+      const missing = spawnSync(output, ['media-smoke'], {
+        cwd: dir, encoding: 'utf8', timeout: 20_000,
+        env: { ...process.env, NODE_PATH: '', CLAUDE_MEM_DATA_DIR: join(dir, 'data') },
+      });
+      expect(missing.status, missing.stderr).toBe(1);
+      expect(JSON.parse(missing.stderr)).toEqual({ mediaRuntime: 'failed', code: 'decoder_unavailable' });
+      rmdirSync(join(dir, 'node_modules'));
+      symlinkSync(resolve('node_modules'), join(dir, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+      const media = spawnSync(output, ['media-smoke'], {
+        cwd: dir, encoding: 'utf8', timeout: 20_000,
+        env: { ...process.env, NODE_PATH: '', CLAUDE_MEM_DATA_DIR: join(dir, 'data') },
+      });
+      expect(media.status, media.stderr).toBe(0);
+      expect(JSON.parse(media.stdout).mediaRuntime).toBe('ok');
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }, 30_000);
 });

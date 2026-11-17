@@ -98,13 +98,14 @@ export const LOCAL_MAX_SOURCE_BYTES = 96 * 1024 * 1024;
 declare const __CMEM_MEDIA_STANDALONE__: boolean;
 async function loadDecoder(): Promise<Decoder> {
   try {
+    const decoderPackage = ['sh', 'arp'].join('');
     // A compiled worker resolves its native sidecar next to the executable,
     // independent of the current working directory or builder checkout.
     // https://bun.sh/docs/bundler#external
     if (typeof __CMEM_MEDIA_STANDALONE__ !== 'undefined' && __CMEM_MEDIA_STANDALONE__) {
-      return createRequire(join(dirname(process.execPath), 'package.json'))('sharp') as Decoder;
+      return createRequire(join(dirname(process.execPath), 'package.json'))(decoderPackage) as Decoder;
     }
-    return (await import('sharp')).default;
+    return (await import(decoderPackage)).default;
   }
   catch { throw new MediaError('decoder_unavailable'); }
 }

@@ -153,7 +153,7 @@ export const DEFAULT_LLM_TIMEOUT_MS = 180_000;
  * other value (or the env var) keeps a short one.
  */
 interface ChangedShippedDefault {
-  key: 'CLAUDE_MEM_LLM_TIMEOUT_MS' | 'CLAUDE_MEM_FIELD_OPTIMIZE_TIMEOUT_MS' | 'CLAUDE_MEM_MEDIA_CAPTURE_ENABLED';
+  key: 'CLAUDE_MEM_LLM_TIMEOUT_MS' | 'CLAUDE_MEM_FIELD_OPTIMIZE_TIMEOUT_MS' | 'CLAUDE_MEM_MEDIA_CAPTURE_ENABLED' | 'CLAUDE_MEM_OBSERVER_MAX_CONVERSATION_CHARS';
   /** The exact string the seeders wrote while it was the default. */
   legacy: string;
   /** Names this key's marker, so each move gets its own one chance. */
@@ -180,6 +180,7 @@ const CHANGED_SHIPPED_DEFAULTS: readonly ChangedShippedDefault[] = [
   // too; typing it changed nothing while 'false' was the default. After this
   // one move, a 'false' saved by the "Keep images" switch or by hand stays.
   { key: 'CLAUDE_MEM_MEDIA_CAPTURE_ENABLED', legacy: 'false', markerTag: 'media-capture-default-on-v1', unit: '', applyOnlyWhenSaved: true },
+  { key: 'CLAUDE_MEM_OBSERVER_MAX_CONVERSATION_CHARS', legacy: '400000', markerTag: 'observer-max-conversation-chars-v1', unit: ' chars', applyOnlyWhenSaved: false },
 ];
 
 // Present ⇔ this settings file has had its one chance at the move for that key.
@@ -237,6 +238,9 @@ export interface SettingsDefaults {
   CLAUDE_MEM_WORKER_HOST: string;
   CLAUDE_MEM_WORKER_URL: string;
   CLAUDE_MEM_WORKER_INGEST_TOKEN: string;
+  CLAUDE_MEM_LOCAL_API_TOKEN: string;
+  CLAUDE_MEM_LINE_ANCHORS_ENABLED: string;
+  CLAUDE_MEM_CORPUS_AGENT: string;
   CLAUDE_MEM_WORKER_INGEST_MAX_BYTES: string;
   CLAUDE_MEM_HOOK_SPOOL_TRANSPORT: string;
   CLAUDE_MEM_ALLOWED_ORIGINS: string;
@@ -529,6 +533,9 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_WORKER_HOST: '127.0.0.1',
     CLAUDE_MEM_WORKER_URL: '',
     CLAUDE_MEM_WORKER_INGEST_TOKEN: '',
+    CLAUDE_MEM_LOCAL_API_TOKEN: '',
+    CLAUDE_MEM_LINE_ANCHORS_ENABLED: 'false',
+    CLAUDE_MEM_CORPUS_AGENT: '',
     CLAUDE_MEM_WORKER_INGEST_MAX_BYTES: '5242880',
     CLAUDE_MEM_HOOK_SPOOL_TRANSPORT: 'auto',
     CLAUDE_MEM_ALLOWED_ORIGINS: '',  // Comma-separated browser origins allowed to call the worker
@@ -648,7 +655,7 @@ export class SettingsDefaultsManager {
     // plan), so capture is opt-in (Wave 3 gate R4-5).
     CLAUDE_MEM_CODEX_SUBAGENT_INGESTION: 'false',
     CLAUDE_MEM_MAX_CONCURRENT_AGENTS: '2',  // Max concurrent Claude SDK agent subprocesses
-    CLAUDE_MEM_OBSERVER_MAX_CONVERSATION_CHARS: '400000',  // Retire an observer conversation past this size and start a fresh generation (#3800)
+    CLAUDE_MEM_OBSERVER_MAX_CONVERSATION_CHARS: '100000',
     CLAUDE_MEM_OBSERVER_THINKING: 'disabled',  // Observer thinking param: 'disabled' (shipped) | 'adaptive' | 'enabled[:budget]' | 'omit' — an always-thinking gateway upstream rejects 'disabled' with 400/1210 (#4732)
     CLAUDE_MEM_OBSERVER_CONTEXT_WINDOW: '',  // Observer model context window in tokens; '' = resolve it (OpenRouter catalogue, Gemini/Claude maps). Lowers the budget above to half the window (#3625)
     CLAUDE_MEM_OBSERVER_MAX_OUTPUT_TOKENS: '4096',  // max_tokens / max_completion_tokens / Gemini maxOutputTokens on every HTTP observer request (#3868)
