@@ -23,7 +23,35 @@
     "untrustedWorkspaces": { "supported": false }
   },
   "categories": [
+    "AI",
+    "Chat",
+    "Machine Learning",
     "Other"
+  ],
+  "keywords": [
+    "ai",
+    "memory",
+    "long-term memory",
+    "agent memory",
+    "copilot",
+    "github copilot",
+    "copilot chat",
+    "claude",
+    "claude code",
+    "mcp",
+    "model context protocol",
+    "context",
+    "semantic search",
+    "offline",
+    "local",
+    "sqlite",
+    "agent",
+    "llm",
+    "lessons learned",
+    "knowledge base",
+    "claude-mem",
+    "長期記憶",
+    "日本語"
   ],
   "activationEvents": [
     "onView:kioku.search",
