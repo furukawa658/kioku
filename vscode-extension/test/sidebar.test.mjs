@@ -3,8 +3,13 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 
-test('sidebar search, filters, plain-text detail, stale replies, empty and error states', async () => {
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+test('sidebar search, filters, plain-text detail, stale replies, empty and error states', async t => {
+  // linux-arm64のrunnerにはGoogle Chromeがない
+  const browser = await chromium.launch({ channel: 'chrome', headless: true }).catch(error => {
+    if (/is not found at/.test(error.message)) return null;
+    throw error;
+  });
+  if (!browser) return t.skip('Google Chrome is not installed');
   try {
     const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
     const errors = [];
