@@ -2,10 +2,29 @@
 
 > kioku is a fork of [claude-mem](https://github.com/thedotmack/claude-mem) by Alex Newman, licensed under Apache-2.0. Files were modified from the upstream. The original README is kept at [docs/upstream-README.md](docs/upstream-README.md). kioku is not affiliated with or endorsed by the claude-mem project or cmem.ai.
 
-kioku ("memory" in Japanese) gives AI coding agents a long-term memory on your own PC. Its purpose is to make the AI behave more wisely over time: it keeps not only what was done, but why work succeeded or failed and the lesson to apply next time.
+**Stop your AI agent from making the same mistake twice.**
 
-- **Learn from successes and failures.** When work succeeds or fails, the agent saves the outcome, the cause and the lesson. Lessons can be searched on their own, so the same mistake is not repeated and what worked is reused.
-- **Share memory across chats and across time.** Memories are stored in one local database instead of inside a single conversation. A new chat can search what earlier chats decided and learned, so handoffs between sessions and the AI's judgments rest on recorded facts instead of guesses.
+kioku ("memory" in Japanese) gives GitHub Copilot Chat a long-term memory on your own PC. It does not dump chat logs. It records what happened, why the work succeeded or failed, and the lesson to apply next time, and any new chat can search those lessons.
+
+One VSIX, no setup, fully offline. Search works in English and Japanese and uses no AI credits. Windows, macOS and Linux.
+
+![A lesson saved in one chat is found and used in a new chat](docs/demo.gif)
+
+*Scripted illustration of the kioku tool calls.*
+
+## Try it in 60 seconds
+
+1. Install `ShunsukeF.kioku-search` and start "kioku (local)" in Copilot Chat's MCP list.
+2. Tell Copilot: `Save a lesson with kioku save_memory: outcome="failure", cause="Forgot --no-dependencies when packaging a VSIX", lesson="Always pass --no-dependencies to vsce package."`
+3. Open a new chat and ask: `Check kioku for lessons before I package a VSIX.` The lesson comes back.
+
+To make the agent search and save lessons on its own, see the instruction snippet in [vscode-extension/README.md](vscode-extension/README.md).
+
+## Why people use it
+
+- **Learn from successes and failures.** The agent saves the outcome, the cause and the lesson, so the same mistake is not repeated and what worked is reused.
+- **Memory that outlives a chat.** One local database holds what earlier chats decided and learned, so handoffs rest on recorded facts instead of guesses.
+- **Private by default.** No telemetry, no cloud sync, no external AI. Your memories stay on your PC.
 
 kioku is developed as a fork of [claude-mem](https://github.com/thedotmack/claude-mem). It keeps claude-mem's worker, database and MCP tools, and is distributed under the same Apache-2.0 license.
 
@@ -14,15 +33,15 @@ kioku is developed as a fork of [claude-mem](https://github.com/thedotmack/claud
 - **Lesson fields.** `save_memory` accepts `outcome`, `cause` and `lesson`, and `search` can select lessons with `concepts="lesson"`. The tool instructions ask the agent to record the cause and the lesson, not only progress or results.
 - **A self-contained VS Code extension.** One VSIX bundles the MCP server, the worker and the Bun runtime, and registers the MCP server for Copilot Chat. Node.js, Bun and Claude Code do not need to be installed.
 - **Offline meaning search.** A multilingual embedding model and ONNX Runtime are bundled. Vectors are stored in SQLite and combined with keyword search. No Chroma server, model download or external request is needed.
-- **A search sidebar.** Search memories by keyword, project and date and read the full text, in English or Japanese.
 - **Summaries without AI credits.** A local script makes an extractive summary. Summarizing with GitHub Copilot is an explicit opt-in.
+- **A small sidebar** to browse and read saved memories. It is a viewer; the value is in the lessons the agent saves and reuses.
 - **Local-only defaults.** Automatic conversation capture, observation by an external AI, cloud sync, telemetry and automatic updates are turned off.
 
-This extension is for Windows x64 and requires VS Code 1.102 or later. PostgreSQL is not required. Saving and searching work offline, and no model is downloaded at first use.
+This extension supports Windows x64, macOS (Intel and Apple silicon) and Linux (x64 and arm64), and requires VS Code 1.102 or later. PostgreSQL is not required. Saving and searching work offline, and no model is downloaded at first use.
 
 ## Install
 
-1. In the VS Code Extensions view, select "Install from VSIX..." and choose the distributed `kioku-search-0.3.0-win32-x64.vsix`. If an earlier version with the same extension ID exists, it will be updated in place.
+1. Install from the Marketplace (`ext install ShunsukeF.kioku-search`), or select "Install from VSIX..." in the Extensions view and choose the VSIX for your platform, for example `kioku-search-win32-x64-0.4.0.vsix`. If an earlier version with the same extension ID exists, it will be updated in place.
 2. Reload VS Code if prompted, and open a trusted workspace folder.
 3. Open the kioku brain icon on the activity bar. If the worker is not running, the bundled version starts. On first launch, wait for database initialization. A memory count of 0 is normal for a new user.
 4. In Copilot Chat's MCP list, start "kioku (local)" and allow access in the VS Code confirmation prompt.
