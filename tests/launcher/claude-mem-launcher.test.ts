@@ -361,7 +361,7 @@ describe('claude-mem launcher', () => {
     makeStubPluginRoot(cacheVersionRoot(temporaryHome, '13.12.0'));
     writeFileSync(
       path.join(temporaryHome, '.claude', 'settings.json'),
-      JSON.stringify({ enabledPlugins: { 'claude-mem@thedotmack': false } }),
+      JSON.stringify({ enabledPlugins: { 'kioku@thedotmack': false } }),
     );
 
     const result = runObservationHook({ temporaryHome });
