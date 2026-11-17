@@ -263,7 +263,8 @@ function checkPackageCompleteness(failures) {
     return;
   }
 
-  const pkgRoot = path.join(tmpPkg, 'node_modules', 'claude-mem');
+  const pkgName = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).name;
+  const pkgRoot = path.join(tmpPkg, 'node_modules', pkgName);
   if (!fs.existsSync(pkgRoot)) {
     failures.push(`installed package not found at ${pkgRoot}`);
     return;
