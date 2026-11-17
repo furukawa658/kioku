@@ -10,6 +10,10 @@ kioku ("memory" in Japanese) gives GitHub Copilot Chat a long-term memory on you
 
 Install one VSIX. Everything runs locally and offline. Searching works in English and Japanese, and no AI credits are used for search or script summaries. It runs on Windows, macOS and Linux.
 
+![A lesson saved in one chat is found and used in a new chat](https://raw.githubusercontent.com/furukawa658/kioku/main/docs/demo.gif)
+
+*Scripted illustration of the kioku tool calls.*
+
 ## Try it in 60 seconds
 
 1. Install the extension and start "kioku (local)" in Copilot Chat's MCP list (see Install).
@@ -45,8 +49,8 @@ kioku is developed as a fork of [claude-mem](https://github.com/thedotmack/claud
 
 - **Lesson fields.** `save_memory` accepts `outcome`, `cause` and `lesson`, and `search` can select lessons with `concepts="lesson"`. The tool instructions ask the agent to record the cause and the lesson, not only progress or results.
 - **A compact MCP surface.** The extension exposes seven tools (`search`, `timeline`, `get_observations`, `save_memory`, `dumb_search`, `work_state_read`, `work_state_write`) with short instructions to keep the agent's context small.
-- **A search sidebar.** Search memories by keyword, project and date and read the full text, in English or Japanese.
 - **Summaries without AI credits.** A local script makes an extractive summary. Summarizing with GitHub Copilot is an explicit opt-in.
+- **A small sidebar** to browse and read saved memories. It is a viewer; the value is in the lessons the agent saves and reuses.
 
 This extension supports Windows x64, macOS (Intel and Apple silicon) and Linux (x64 and arm64), and requires VS Code 1.102 or later. PostgreSQL is not required. Saving and searching work offline, and no model is downloaded at first use.
 
