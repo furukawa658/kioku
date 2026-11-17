@@ -667,7 +667,7 @@ describe('Spawn-Contract Templating - Rule A shell resolution matrix', () => {
     // behavior; running all six only multiplies shell spawns.
     const codexRoot = mkdtempSync(path.join(tmpdir(), 'cm-codex-root-'));
     const home = mkdtempSync(path.join(tmpdir(), 'cm-home-'));
-    const cacheRoot = path.join(home, '.claude', 'plugins', 'cache', 'thedotmack', 'claude-mem', '99.0.0');
+    const cacheRoot = path.join(home, '.claude', 'plugins', 'cache', 'thedotmack', 'kioku', '99.0.0');
     writeProbeScripts(codexRoot);
     // The Codex copy deliberately has no node_modules — that is the bug shape.
     writeProbeScripts(cacheRoot);
@@ -712,7 +712,7 @@ describe('Spawn-Contract Templating - Rule A shell resolution matrix', () => {
         const home = path.join(sandbox, 'home');
         const configDir = path.join(home, '.claude');
         const hostRoot = makeRoot(path.join(sandbox, 'codex-plugin'), hostRootHasDependencies);
-        const cacheRoot = makeRoot(path.join(configDir, 'plugins', 'cache', 'thedotmack', 'claude-mem', '99.0.0'), true);
+        const cacheRoot = makeRoot(path.join(configDir, 'plugins', 'cache', 'thedotmack', 'kioku', '99.0.0'), true);
         const command = buildCodexWindowsCommand(['hook', 'codex', 'session-init'], { requireDependencies: true });
         const env: Record<string, string | undefined> = {
           ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: configDir, CLAUDE_PLUGIN_ROOT: hostRoot,
@@ -747,7 +747,7 @@ describe('Spawn-Contract Templating - Rule A shell resolution matrix', () => {
 
   it('prefers the highest cache version over the newest mtime and skips .orphaned_at dirs (2026-07-22 restart storm)', () => {
     const home = mkdtempSync(path.join(tmpdir(), 'cm-home-'));
-    const cacheBase = path.join(home, '.claude', 'plugins', 'cache', 'thedotmack', 'claude-mem');
+    const cacheBase = path.join(home, '.claude', 'plugins', 'cache', 'thedotmack', 'kioku');
     const makeVersion = (version: string) => {
       const root = path.join(cacheBase, version);
       writeProbeScripts(root);

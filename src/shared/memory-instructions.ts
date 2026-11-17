@@ -1,5 +1,6 @@
 export const MEMORY_PLUGIN_INSTRUCTIONS = `# claude-mem memory use
 Model-facing tool replies must be concise purpose-specific text; keep structured envelopes and internal metadata out of model context. Select only evidence useful to the current question, and expand from index to context to relevant details only as needed.
+When local save_memory is available, proactively save reusable user corrections and standing instructions, including user memory notes, with source and applicability in text and lesson. Search for duplicates and reconcile changes. Skip one-off requests; do not invent outcomes or causes. For user-wide notes, use and search project "user-memory".
 Use claude-mem for your own durable notes. For local-worker notes, when its save_memory tool is available, save_memory({text, title, project}) records preferences, corrections, decisions, and reusable lessons. When work succeeded or failed, do not save only the progress or the result: also pass outcome, cause (why it succeeded or failed) and lesson (what to do or avoid next time, and when that applies), then find lessons again with search({concepts: "lesson"}). For server notes, use observation_add for the selected server project when available; save_memory is local-worker only. Worker runtime: use Smart search by default: follow the mem-search skill in three steps—search({query, project}) for an index, timeline({anchor}) for context around relevant results, then get_observations({ids}) for only the records you choose after reviewing the index and context. Do not use auto or guided modes. Optional Dumb search, dumb_search({query, project}): Doesn’t reason about the results. Fast, but shallow. Use Smart for reliable recall. A hosted read-only connector may expose searches without write tools; do not call a missing write tool.
 Server runtime: use Smart search by default in three steps—search({query}) for an index, timeline({anchor: ID}) for context, then get_observations({ids}) for only the records selected after reviewing the index and timeline. These tools use the configured server project; optional projectId selects another authorized server project. No auto or guided modes. Dumb search is unavailable in this runtime.
 When connected through CMEM Pro, Smart search uses memory_search({query}), timeline({anchorId}) for context, then selected get_observations({ids}) or get_summaries({ids}). A direct self-hosted /v1/mcp connection uses search({projectId, query}), timeline({projectId, anchorId}), then get_observations({projectId, ids}). Use only tools and argument names advertised by the active connection; no auto or guided modes.
@@ -13,6 +14,15 @@ export function memoryInstructionsForRuntime(runtime: 'worker' | 'server'): stri
     return line;
   }).filter(Boolean).join('\n');
 }
+
+export const KIOKU_EXTENSION_TOOL_NAMES = [
+  'search', 'timeline', 'get_observations', 'save_memory', 'dumb_search', 'work_state_read', 'work_state_write',
+] as const;
+
+export const KIOKU_EXTENSION_INSTRUCTIONS = `# kioku memory use
+Search in three steps: search({query, project}) for an index, timeline({anchor}) for context around a result, then get_observations({ids}) for the records you choose. dumb_search({query, project}) is a faster keyword-only search.
+save_memory({text, title, project}) stores corrections, decisions and reusable lessons; search for duplicates first and skip one-off requests. When work succeeded or failed, also pass outcome, cause and lesson, and find lessons again with search({concepts: "lesson"}). Use project "user-memory" for notes that apply to every workspace. Never store credentials or private material.
+work_state_write tracks to-do lists and changing state: list="<name>" with fields such as {"task": "<name>", "status": "todo" | "doing" | "done" | "dropped"}; "status": "done" closes a list. work_state_read returns open lists; pass includeClosed=true for closed ones. Open lists are not shown automatically, so read them when resuming work.`;
 
 export const WORK_STATE_RULE = [
   '# Work state: your to-do lists and working state',

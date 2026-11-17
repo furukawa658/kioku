@@ -20,6 +20,7 @@ interface DependencyPreflightSettings {
   CLAUDE_MEM_PROVIDER?: string;
   CLAUDE_MEM_PROVIDER_BY_SOURCE?: unknown;
   CLAUDE_MEM_CHROMA_ENABLED?: string;
+  CLAUDE_MEM_OBSERVER_ENABLED?: string;
   CLAUDE_MEM_CHROMA_UVX_PATH?: string;
 }
 
@@ -167,7 +168,8 @@ export function runWorkerDependencyPreflight(options: WorkerDependencyPreflightO
   const chromaEnabled = options.settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
 
   // A provider mapped per source can need the Claude CLI even when the global one does not.
-  const needsClaudeCli = provider === 'claude' || providersMappedBySource(options.settings.CLAUDE_MEM_PROVIDER_BY_SOURCE).includes('claude');
+  const needsClaudeCli = options.settings.CLAUDE_MEM_OBSERVER_ENABLED !== 'false'
+    && (provider === 'claude' || providersMappedBySource(options.settings.CLAUDE_MEM_PROVIDER_BY_SOURCE).includes('claude'));
 
   if (needsClaudeCli) {
     const findClaudeExecutable = options.findClaudeExecutable ?? (() => defaultFindClaudeExecutable('WORKER'));

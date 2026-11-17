@@ -109,6 +109,8 @@ export class SQLiteVecSearch {
     const candidates: Array<{ key: string; category: SearchCategory; row: SearchResult; text: string; hash: string }> = [];
     for (const category of SEARCH_CATEGORIES) {
       if (!isCategoryRequested(options.searchType, category)) continue;
+      // concepts列を持つのは観察だけなので、他の表へは条件を渡さない
+      if (options.concepts && category !== 'observations') continue;
       const filters: SearchOptions = { ...options, type: options.obsType as SearchOptions['type'],
         dateRange: options.dateRange ?? { start: 0 }, orderBy: 'date_asc', limit: 256, offset: 0 };
       for (;;) {

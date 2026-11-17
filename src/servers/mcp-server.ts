@@ -14,7 +14,7 @@ const packageVersion = typeof __DEFAULT_PACKAGE_VERSION__ !== 'undefined' ? __DE
 
 import { logger } from '../utils/logger.js';
 import { spoolWorkStateMcpInstruction, spoolWorkStateMcpResult } from '../cli/work-state-telemetry.js';
-import { mcpServerInstructions } from '../shared/memory-instructions.js';
+import { mcpServerInstructions, KIOKU_EXTENSION_INSTRUCTIONS, KIOKU_EXTENSION_TOOL_NAMES } from '../shared/memory-instructions.js';
 import { LESSON_CONCEPT, MEMORY_OUTCOMES, memoryOutcomeConcept } from '../shared/memory-lesson.js';
 
 console['log'] = (...args: any[]) => {
@@ -1180,6 +1180,11 @@ Optional Dumb search: \`dumb_search({query, project})\`. Doesn’t reason about 
   }
 ];
 
+// VS Code拡張では動作確認済みの7ツールだけを公開する
+function isExtensionTool(tool: { name: string }): boolean {
+  return process.env.KIOKU_EXTENSION_TOOLS !== '1' || (KIOKU_EXTENSION_TOOL_NAMES as readonly string[]).includes(tool.name);
+}
+
 function workStateEnabled(): boolean {
   return isWorkStateEnabled(loadFromFileOnce().CLAUDE_MEM_WORK_STATE_ENABLED);
 }
@@ -1198,7 +1203,9 @@ function createMcpServer(getCwd?: CwdResolver): Server {
   // They are sent here, at initialize, so the SessionStart context can be the
   // memory timeline alone. Each part follows the setting that turns it off.
   const workStateRuleIncluded = workStateEnabled();
-  const instructions = mcpServerInstructions({
+  const instructions = process.env.KIOKU_EXTENSION_TOOLS === '1'
+    ? KIOKU_EXTENSION_INSTRUCTIONS
+    : mcpServerInstructions({
     runtime: selectRuntime(),
     workStateEnabled: workStateRuleIncluded,
     memoryInstructionsEnabled: loadFromFileOnce().CLAUDE_MEM_MEMORY_INSTRUCTIONS_ENABLED !== 'false',
@@ -1224,7 +1231,7 @@ function createMcpServer(getCwd?: CwdResolver): Server {
     const advertisedTools = withoutUnjoinedTeamBrainTools(
       withoutDisabledWorkStateTools(getAdvertisedMcpToolsForRuntime(tools, selectRuntime()), workStateEnabled()),
       teamBrainJoined(),
-    );
+    ).filter(isExtensionTool);
     return {
       tools: advertisedTools.map(tool => ({
         name: tool.name,
@@ -1238,7 +1245,7 @@ function createMcpServer(getCwd?: CwdResolver): Server {
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const tool = tools.find(t => t.name === request.params.name);
 
-    if (!tool) {
+    if (!tool || !isExtensionTool(tool)) {
       throw new Error(`Unknown tool: ${request.params.name}`);
     }
 

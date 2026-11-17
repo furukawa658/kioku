@@ -1,10 +1,7 @@
-import { cp, mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { promisify } from 'node:util';
-import { execFile } from 'node:child_process';
 import path from 'node:path';
 
-const execute = promisify(execFile);
 export const MODEL_REPO = 'Xenova/multilingual-e5-small';
 export const MODEL_REVISION = '761b726dd34fb83930e26aab4e9ac3899aa1fa78';
 export const MODEL_ASSETS = [
@@ -18,6 +15,11 @@ export const MODEL_ASSETS = [
 
 export async function download(url, destination) {
   await mkdir(path.dirname(destination), { recursive: true });
+  // 取得先URLはコミット固定のため、取得済みの資材は再取得しない
+  if ((await stat(destination).catch(() => null))?.size > 0) {
+    console.log(`DOWNLOAD_CACHED ${path.basename(destination)}`);
+    return;
+  }
   const temporary = destination + '.part';
   const started = Date.now();
   console.log(`DOWNLOAD_START ${path.basename(destination)}`);
@@ -25,9 +27,9 @@ export async function download(url, destination) {
     console.log(`DOWNLOAD_PROGRESS ${path.basename(destination)} elapsed_s=${Math.floor((Date.now() - started) / 1000)}`);
   }, 5000);
   try {
-    await execute('pwsh', ['-NoProfile', '-NonInteractive', '-Command',
-      "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri $env:KIOKU_ASSET_URL -OutFile $env:KIOKU_ASSET_FILE"],
-    { env: { ...process.env, KIOKU_ASSET_URL: url, KIOKU_ASSET_FILE: temporary }, windowsHide: true });
+    const response = await fetch(url, { redirect: 'follow' });
+    if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+    await writeFile(temporary, Buffer.from(await response.arrayBuffer()));
     await rename(temporary, destination);
     console.log(`DOWNLOAD_DONE ${path.basename(destination)} bytes=${(await stat(destination)).size}`);
   } catch (error) {
@@ -50,7 +52,8 @@ export async function stageSemantic(repo, runtime) {
   await mkdir(semantic, { recursive: true });
   await cp(path.join(repo, 'node_modules/@huggingface/transformers/dist/transformers.node.mjs'), path.join(semantic, 'transformers.mjs'));
   const notices = [];
-  const packages = ['onnxruntime-node', 'onnxruntime-common', 'sharp', '@img/colour', '@img/sharp-win32-x64', 'detect-libc', 'semver'];
+  const packages = ['onnxruntime-node', 'onnxruntime-common'];
+  const excludedBinaries = /^(directml\.dll|dxcompiler\.dll|dxil\.dll|libonnxruntime_providers_(cuda|tensorrt)\b.*)$/i;
   for (const [index, name] of packages.entries()) {
     const source = path.join(repo, 'node_modules', name);
     const destination = path.join(runtime, 'node_modules', name);
@@ -58,14 +61,22 @@ export async function stageSemantic(repo, runtime) {
     await mkdir(path.dirname(destination), { recursive: true });
     if (name === 'onnxruntime-node') {
       await mkdir(destination, { recursive: true });
-      for (const item of ['package.json', 'dist', 'bin/napi-v6/win32/x64']) {
-        await cp(path.join(source, item), path.join(destination, item), { recursive: true });
+      for (const item of ['package.json', 'dist', `bin/napi-v6/${process.platform}/${process.arch}`]) {
+        await cp(path.join(source, item), path.join(destination, item), {
+          recursive: true, filter: file => !excludedBinaries.test(path.basename(file)),
+        });
       }
     } else await cp(source, destination, { recursive: true, filter: file => path.basename(file) !== 'node_modules' });
     const manifest = JSON.parse(await readFile(path.join(source, 'package.json'), 'utf8'));
     notices.push(`${name}@${manifest.version}: ${manifest.license || 'see package license'}`);
     console.log(`SEMANTIC_PACKAGE ${index + 1}/${packages.length} ${name}`);
   }
+  // 画像処理は使わないため、transformersのimportを満たす空のsharpを置く
+  const sharpStub = path.join(runtime, 'node_modules', 'sharp');
+  await rm(sharpStub, { recursive: true, force: true });
+  await mkdir(sharpStub, { recursive: true });
+  await writeFile(path.join(sharpStub, 'package.json'), JSON.stringify({ name: 'sharp', version: '0.0.0-kioku-stub', main: 'index.js' }));
+  await writeFile(path.join(sharpStub, 'index.js'), "module.exports = function sharp() { throw new Error('image processing is not bundled'); };\n");
   for (const name of [...packages, '@huggingface/transformers']) {
     const source = path.join(repo, 'node_modules', name);
     const licenses = (await readdir(source)).filter(file => /^(license|licence|notice|copying|thirdpartynotices)([-.]|$)/i.test(file));

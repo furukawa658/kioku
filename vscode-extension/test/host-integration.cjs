@@ -12,7 +12,7 @@ exports.run = async function () {
   const { createMcpProvider } = require('../mcp-provider.cjs');
   let url;
   try {
-    const extension = vscode.extensions.getExtension('furukawa658.kioku-search');
+    const extension = vscode.extensions.getExtension('ShunsukeF.kioku-search');
     assert.ok(extension, 'Extension must be discovered');
     await extension.activate();
     assert.equal(extension.isActive, true);

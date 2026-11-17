@@ -22,7 +22,7 @@ process.env.CLAUDE_MEM_DATA_DIR = dataDir;
 const { runtimeOptions, ensureRuntime } = require(path.join(extension, 'runtime.cjs'));
 const options = runtimeOptions(extension, `http://127.0.0.1:${port}`);
 Object.assign(options.env, {
-  PATH: path.join(process.env.SystemRoot, 'System32'),
+  PATH: process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32') : '/usr/bin:/bin',
   HOME: isolated, USERPROFILE: isolated, APPDATA: isolated, LOCALAPPDATA: isolated,
   CLAUDE_CONFIG_DIR: path.join(isolated, 'claude')
 });
@@ -41,16 +41,22 @@ try {
   transport.stderr?.on('data', chunk => { diagnostics = (diagnostics + chunk).slice(-6000); });
   const client = new Client({ name: 'kioku-isolated-smoke', version: '1.0.0' });
   await client.connect(transport);
+  assert.match(client.getInstructions(), /corrections, decisions and reusable lessons/);
+  assert.match(client.getInstructions(), /project "user-memory"/);
   const { tools } = await client.listTools();
+  assert.deepEqual(tools.map(tool => tool.name).sort(), ['dumb_search', 'get_observations', 'save_memory', 'search', 'timeline', 'work_state_read', 'work_state_write']);
   for (const name of ['save_memory', 'search', 'get_observations']) assert.ok(tools.some(tool => tool.name === name), name);
   const marker = `KIOKU_SMOKE_${Date.now()}`;
-  const saved = await client.callTool({ name: 'save_memory', arguments: { text: `${marker} SQLiteデータベースのバックアップを作成して復元を確認する。`, title: marker, project: 'kioku-distribution-smoke' } });
+  const saved = await client.callTool({ name: 'save_memory', arguments: { text: `${marker} SQLiteデータベースのバックアップを作成して復元を確認する。`, title: marker, project: 'kioku-distribution-smoke', lesson: 'バックアップ後に復元を確認する。' } });
   assert.notEqual(saved.isError, true, JSON.stringify(saved));
   const distractor = await client.callTool({ name: 'save_memory', arguments: { text: 'カレーの材料を買って夕食を作る。', title: '夕食の準備', project: 'kioku-distribution-smoke' } });
   assert.notEqual(distractor.isError, true, JSON.stringify(distractor));
   const search = await client.callTool({ name: 'search', arguments: { query: marker, project: 'kioku-distribution-smoke' } });
   assert.notEqual(search.isError, true, JSON.stringify(search));
   assert.match(JSON.stringify(search), new RegExp(marker));
+  const lessons = await client.callTool({ name: 'search', arguments: { query: marker, project: 'kioku-distribution-smoke', concepts: 'lesson' } });
+  assert.notEqual(lessons.isError, true, JSON.stringify(lessons));
+  assert.match(JSON.stringify(lessons), new RegExp(marker));
   const response = await fetch(`${options.url}/api/search?query=${marker}&format=json&type=observations`);
   assert.equal(response.status, 200);
   const rows = await response.json();
