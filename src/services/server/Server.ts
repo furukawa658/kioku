@@ -8,10 +8,12 @@ import { logger } from '../../utils/logger.js';
 import {
   createCorsMiddleware,
   createForeignPageDeleteGuard,
+  createLocalApiTokenGuard,
   createMiddleware,
   createRemoteReadOnlyGuard,
   createWorkerHostGuard,
   requireLocalhost,
+  type LocalApiTokenOptions,
   type RemoteReadOnlyOptions,
   type WorkerOriginPolicy,
 } from '../worker/http/middleware.js';
@@ -149,6 +151,7 @@ export interface ServerOptions {
    * unchanged.
    */
   remoteReadOnly?: RemoteReadOnlyOptions;
+  localApiToken?: LocalApiTokenOptions;
   /**
    * Worker only: trusted browser origins and Host names (plan-23 step 4). When
    * present, a DNS-rebinding Host check runs before CORS, and CORS also admits
@@ -210,10 +213,9 @@ export class Server {
     this.options = options;
     this.app = express();
     this.app.disable('x-powered-by');
-    // Position zero is load-bearing: /api/auth/*splat (setupPreBodyParserRoutes),
-    // the express.static mount (setupMiddleware), /api/admin/* (setupCoreRoutes)
-    // and every route registered later all mount after this point. Anything
-    // mounted afterwards leaves earlier routes uncovered.
+    if (this.options.localApiToken) {
+      this.app.use(createLocalApiTokenGuard(this.options.localApiToken));
+    }
     this.setupRemoteReadOnlyGuard();
     this.setupSecurityHeaders();
     this.setupCors();
@@ -328,11 +330,6 @@ export class Server {
   }
 
   private setupMiddleware(): void {
-    // Idle-exit request tracking, ahead of the body parsers and every route
-    // registered from here on. The remote read-only guard, security headers,
-    // host/CORS guards and the /api/auth routes mount before it (position
-    // zero belongs to the read-only guard), so a request that only they
-    // answer is not counted; none of those stays open.
     this.app.use((_req: Request, res: Response, next: () => void) => {
       this.trackRequestActivity(res);
       next();

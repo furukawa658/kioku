@@ -152,6 +152,7 @@ export function logDeletedSessionSkip(
 export interface ObservationPayload {
   contentSessionId: string;
   toolName: string;
+  nativeToolName?: string;
   toolInput?: unknown;
   toolResponse?: unknown;
   cwd?: string;
@@ -233,7 +234,7 @@ export async function ingestObservation(payload: ObservationPayload, handoff: In
 
   const filterToolName = platformSource === 'hermes'
     ? HERMES_FILTER_TOOL_NAMES.get(payload.toolName) ?? payload.toolName : payload.toolName;
-  if (isToolSkipped(payload.toolName, settings.CLAUDE_MEM_SKIP_TOOLS)
+  if (isToolSkipped(payload.toolName, settings.CLAUDE_MEM_SKIP_TOOLS, payload.nativeToolName)
     || isToolSkipped(filterToolName, settings.CLAUDE_MEM_SKIP_TOOLS)) {
     if (payload.toolName === 'Skill') {
       const { skill_id, skill_source } = classifySkillId(

@@ -11,10 +11,20 @@ export function workerBinaryBuildOptions({ root = process.cwd(), outfile, target
   return {
     entrypoints: [path.join(root, 'src/services/worker-service.ts'), path.join(root, 'src/services/context/context-read-worker.ts'), path.join(root, 'src/services/work-view/work-view-read-worker.ts')],
     target: 'bun', naming: '[name].js', minify: true,
-    external: ['@opentelemetry/api', 'sharp'],
+    external: ['@opentelemetry/api'],
     define: { '__CMEM_MEDIA_STANDALONE__': 'true' },
     compile: { outfile, autoloadPackageJson: true, ...(target ? { target } : {}) },
-    plugins: [{ name: 'single-zod-entry', setup(builder) {
+    plugins: [{ name: 'lazy-transformers-sharp', setup(builder) {
+      builder.onResolve({ filter: /^sharp$/ }, args => args.importer.replaceAll('\\', '/').includes('@huggingface/transformers')
+        ? { path: 'sharp', namespace: 'lazy-transformers-sharp' } : { path: 'sharp', external: true });
+      builder.onLoad({ filter: /.*/, namespace: 'lazy-transformers-sharp' }, () => ({
+        loader: 'js',
+        contents: `import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+const load = () => createRequire(join(dirname(process.execPath), 'package.json'))(['sh', 'arp'].join(''));
+export default new Proxy(function (...args) { return load()(...args); }, { get(_target, key) { return load()[key]; } });`,
+      }));
+    } }, { name: 'single-zod-entry', setup(builder) {
       builder.onResolve({ filter: /^zod\/v4$/ }, () => ({ path: Bun.resolveSync('zod', root) }));
     } }, deepSearchBuildPlugin(root), ...plugins],
   };
