@@ -9,8 +9,17 @@ permissions:
   contents: read
 
 jobs:
-  publish:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { target: win32-x64, os: windows-latest }
+          - { target: darwin-x64, os: macos-15-intel }
+          - { target: darwin-arm64, os: macos-15 }
+          - { target: linux-x64, os: ubuntu-24.04 }
+          - { target: linux-arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: vscode-extension
@@ -26,9 +35,41 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
-      - run: npx @vscode/vsce package --target win32-x64 --no-dependencies --allow-missing-repository
-      - run: node test/package-content.mjs (Get-ChildItem *.vsix).FullName
-      - name: Publish
+      - run: npx @vscode/vsce package --target ${{ matrix.target }} --no-dependencies --allow-missing-repository
+      - name: Verify package content
+        shell: bash
+        run: node test/package-content.mjs "$(ls *.vsix)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.target }}
+          path: vscode-extension/*.vsix
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vsix-*
+          path: vsix
+          merge-multiple: true
+      - name: Check all five VSIX are present
+        run: test "$(ls vsix/*.vsix | wc -l)" -eq 5
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" vsix/*.vsix --title "$GITHUB_REF_NAME" --generate-notes
+      - name: Publish to Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx @vscode/vsce publish --packagePath (Get-ChildItem *.vsix).FullName
+        run: |
+          for f in vsix/*.vsix; do
+            npx @vscode/vsce publish --packagePath "$f"
+          done
