@@ -16,4 +16,5 @@ await build({
 
 await import('./stage-runtime.mjs');
 
-await renderIcon();
+// Chrome channelはlinux-arm64に存在しないため、CIではコミット済みPNGを使う
+if (!process.env.CI) await renderIcon();
