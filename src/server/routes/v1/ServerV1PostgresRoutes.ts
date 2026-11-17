@@ -42,10 +42,11 @@ import { PostgresUsageRepository } from '../../../storage/postgres/usage.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { apiKeyPrefix, hashApiKeyAsync } from '../../auth/api-key-hash.js';
-import { PostgresServerSessionsRepository } from '../../../storage/postgres/server-sessions.js';
+import { PostgresServerSessionsRepository, type PostgresServerSession } from '../../../storage/postgres/server-sessions.js';
 import { IngestEventsService, type EnqueueOutcome } from '../../services/IngestEventsService.js';
 import { EndSessionService } from '../../services/EndSessionService.js';
 import { normalizePlatformSource, normalizePlatformSourceOrNull } from '../../../shared/platform-source.js';
+import { LISTING_OFFSET_CAP_MESSAGE, MAX_LISTING_OFFSET } from '../../../shared/listing-offset-cap.js';
 import {
   SERVER_CONTEXT_MAX_LIMIT,
   SERVER_CONTEXT_QUERY_DEFAULT_LIMIT,
@@ -53,6 +54,14 @@ import {
 } from '../../../shared/server-context-limits.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
+
+// The canonical Postgres event carries native receipt identity and metadata
+// in addition to the shared SQLite event shape. Validate both HTTP forms
+// before ingestion so parsing cannot erase the repository's replay key.
+const CreatePostgresAgentEventSchema = CreateAgentEventSchema.extend({
+  sourceEventId: z.string().min(1).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
 
 declare const __DEFAULT_PACKAGE_VERSION__: string;
 const MCP_SERVER_VERSION =
@@ -201,6 +210,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       allowLocalDevBypass: this.options.allowLocalDevBypass,
       requiredScopes: ['memories:read'],
     });
+    const baseKeyIssuer = requirePostgresServerAuth(this.options.pool, {
+      authMode: this.options.authMode,
+      allowLocalDevBypass: this.options.allowLocalDevBypass,
+      requiredScopes: ['memories:read', 'memories:write'],
+    });
     // Paid-readiness guards, all opt-in via env so default behavior is unchanged
     // (empty array → readAuth/writeAuth are just the base auth). Express accepts
     // a middleware array wherever a single handler goes, so the per-route
@@ -208,6 +222,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // → meter, so the request is counted only once it's admitted.
     const writeAuth: RequestHandler[] = [baseWrite, ...serverUsageGuards(this.options.pool, { write: true })];
     const readAuth: RequestHandler[] = [baseRead, ...serverUsageGuards(this.options.pool)];
+    const keyIssuerAuth: RequestHandler[] = [baseKeyIssuer, ...serverUsageGuards(this.options.pool, { write: true })];
 
     // GET /v1/usage — per-kind usage totals for the caller's team this month.
     app.get('/v1/usage', readAuth, this.asyncHandler(async (req, res) => {
@@ -220,10 +235,10 @@ export class ServerV1PostgresRoutes implements RouteHandler {
 
     // POST /v1/keys — mint a READ-ONLY, optionally-expiring API key for the
     // caller's team and return the ready-to-paste connect command. Gated by
-    // writeAuth: minting a lesser (read) key requires you can already write the
-    // team's memory, which avoids a read key escalating into more keys. The raw
-    // key is shown exactly once.
-    app.post('/v1/keys', writeAuth, this.handleCreate(
+    // both read and write scopes: an issuer must already hold the read access
+    // it delegates, and a read-only key must not mint further keys. The raw key
+    // is shown exactly once.
+    app.post('/v1/keys', keyIssuerAuth, this.handleCreate(
       z.object({
         label: z.string().max(120).optional(),
         expiresInDays: z.number().int().positive().max(365).optional(),
@@ -268,7 +283,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       res.status(200).json({
         mcpUrl,
         connectCommand: mcpConnectCommand(mcpUrl, '<YOUR_API_KEY>'),
-        hint: 'POST /v1/keys (write scope) to mint a read-only key for this link.',
+        hint: 'POST /v1/keys (read and write scopes) to mint a read-only key for this link.',
       });
     }));
 
@@ -282,7 +297,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       const generate = parsedQuery.data.generate !== 'false';
       const wait = parsedQuery.data.wait === 'true';
 
-      const result = CreateAgentEventSchema.safeParse(req.body);
+      const result = CreatePostgresAgentEventSchema.safeParse(req.body);
       if (!result.success) {
         res.status(400).json({ error: 'ValidationError', issues: result.error.issues });
         return;
@@ -338,7 +353,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           }
           if (waiting.signal.aborted) return;
           res.status(201).json({
-            event: serializeEvent(event),
+            event: serializeEvent(event, canReadMemories(req)),
             generationJob: resolved ? serializeJobStatusResponse(resolved, enqueueState) : null,
             ...(waitTimedOut ? { waitTimedOut: true } : {}),
           });
@@ -349,7 +364,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       }
 
       res.status(201).json({
-        event: serializeEvent(event),
+        event: serializeEvent(event, canReadMemories(req)),
         ...(outbox
           ? { generationJob: serializeGenerationJob(outbox, enqueueState) }
           : {}),
@@ -366,7 +381,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       const generate = parsedQuery.data.generate !== 'false';
       const wait = parsedQuery.data.wait === 'true';
 
-      const batchSchema = z.array(CreateAgentEventSchema).min(1).max(500);
+      const batchSchema = z.array(CreatePostgresAgentEventSchema).min(1).max(500);
       const result = batchSchema.safeParse(req.body);
       if (!result.success) {
         res.status(400).json({ error: 'ValidationError', issues: result.error.issues });
@@ -438,7 +453,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           const anyTimedOut = resolved.some(r => r.timedOut);
           res.status(201).json({
             events: resolved.map(({ event, outbox, timedOut }, index) => ({
-              event: serializeEvent(event),
+              event: serializeEvent(event, canReadMemories(req)),
               generationJob: outbox
                 ? serializeJobStatusResponse(outbox, enqueueResults[index]!)
                 : null,
@@ -454,7 +469,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
 
       res.status(201).json({
         events: inserted.map(({ event, outbox }, index) => ({
-          event: serializeEvent(event),
+          event: serializeEvent(event, canReadMemories(req)),
           ...(outbox
             ? { generationJob: serializeGenerationJob(outbox, enqueueResults[index]!) }
             : {}),
@@ -791,7 +806,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
               platformSource,
             });
             if (existing) {
-              res.status(200).json({ session: serializeSession(existing) });
+              res.status(200).json({ session: serializeSessionWriteReceipt(req, existing) });
               return;
             }
           }
@@ -825,14 +840,14 @@ export class ServerV1PostgresRoutes implements RouteHandler {
                 platformSource,
               });
               if (racedRow) {
-                res.status(200).json({ session: serializeSession(racedRow) });
+                res.status(200).json({ session: serializeSessionWriteReceipt(req, racedRow) });
                 return;
               }
             }
             throw error;
           }
           await this.auditWrite(req, 'session.write', session.id, session.projectId);
-          res.status(201).json({ session: serializeSession(session) });
+          res.status(201).json({ session: serializeSessionWriteReceipt(req, session) });
         } catch (error) {
           this.handleDbError(error, res, 'session.write');
         }
@@ -906,7 +921,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       await this.auditWrite(req, 'session.end', endedSession.id, endedSession.projectId);
 
       res.status(200).json({
-        session: serializeSession(endedSession),
+        session: serializeSessionWriteReceipt(req, endedSession),
         ...(summaryOutbox
           ? { generationJob: serializeGenerationJob(summaryOutbox, enqueueState) }
           : {}),
@@ -959,7 +974,14 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           serverSessionId: linkedSessionId,
           kind: body.kind ?? 'manual',
           content: body.content,
-          metadata: body.metadata ?? {},
+          // A manual memory can arrive without any session to carry its
+          // platform. Keep the supplied source on the row for scoped recall.
+          metadata: {
+            ...body.metadata,
+            ...(body.platformSource == null ? {} : {
+              platformSource: normalizePlatformSource(body.platformSource),
+            }),
+          },
         };
         try {
           const repo = new PostgresObservationRepository(this.options.pool);
@@ -989,10 +1011,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           await this.auditWrite(req, 'memory.write', observation.id, observation.projectId, {
             outcome: 'existing_generation_key',
           });
-          const scopes = req.authContext?.scopes ?? [];
-          const canRead = req.authContext?.mode === 'local-dev'
-            || scopes.includes('memories:read') || scopes.includes('*');
-          res.status(200).json(canRead
+          res.status(200).json(canReadMemories(req)
             ? { memory: serializeObservation(observation), existing: true }
             : { memory: { id: observation.id, projectId: observation.projectId }, existing: true });
         } catch (error) {
@@ -1429,7 +1448,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     return null;
   }
 
-  private toAgentEventInput(body: z.infer<typeof CreateAgentEventSchema>, teamId: string): CreatePostgresAgentEventInput {
+  private toAgentEventInput(body: z.infer<typeof CreatePostgresAgentEventSchema>, teamId: string): CreatePostgresAgentEventInput {
     const sourceAdapter = body.sourceType ?? SOURCE_ADAPTER_DEFAULT;
     const occurredAtEpoch = typeof body.occurredAtEpoch === 'number' ? body.occurredAtEpoch : Date.now();
     return {
@@ -1438,16 +1457,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       serverSessionId: body.serverSessionId ?? null,
       contentSessionId: body.contentSessionId ?? null,
       sourceAdapter,
-      sourceEventId: typeof (body as Record<string, unknown>).sourceEventId === 'string'
-        ? ((body as Record<string, unknown>).sourceEventId as string)
-        : null,
+      sourceEventId: body.sourceEventId ?? null,
       eventType: body.eventType,
       platformSource: normalizePlatformSourceOrNull(body.platformSource),
       payload: (body.payload ?? {}) as object,
-      metadata: typeof (body as Record<string, unknown>).metadata === 'object'
-        && (body as Record<string, unknown>).metadata !== null
-        ? ((body as Record<string, unknown>).metadata as Record<string, unknown>)
-        : {},
+      metadata: body.metadata ?? {},
       occurredAt: new Date(occurredAtEpoch),
     };
   }
@@ -2073,14 +2087,15 @@ export const JOB_LIST_DEFAULT_LIMIT = 50;
 export const JOB_LIST_MAX_LIMIT = 200;
 /**
  * Upper bound on the listing `offset`, as abuse protection: it caps how many
- * rows one request can make Postgres read and discard. 10,000 rows is 50 pages
+ * rows one request can make Postgres read and discard. It is the shared
+ * listing cap (src/shared/listing-offset-cap.ts); 10,000 rows is 50 pages
  * at JOB_LIST_MAX_LIMIT. The cost of OFFSET stops at the end of the caller's
  * matching rows, so this is a per-request cap and not a fix for an unbounded
  * scan. A request above it answers 400 rather than a page it did not ask for.
  * Rows past this point are unreachable on these routes unless a filter narrows
  * the listing; reaching them would take a keyset cursor, which does not exist.
  */
-export const JOB_LIST_MAX_OFFSET = 10_000;
+export const JOB_LIST_MAX_OFFSET = MAX_LISTING_OFFSET;
 
 export function parseGenericJobListingQuery(req: Request): {
   status: string | null;
@@ -2129,7 +2144,7 @@ function parseJobListOffset(value: unknown): number {
   const offset = clampInt(value, 0, 0, Number.MAX_SAFE_INTEGER);
   if (offset > JOB_LIST_MAX_OFFSET) {
     throw new AppError(
-      `offset must be at most ${JOB_LIST_MAX_OFFSET}; narrow the listing with filters to reach older rows`,
+      LISTING_OFFSET_CAP_MESSAGE,
       400,
       'INVALID_PAGINATION',
     );
@@ -2273,7 +2288,32 @@ function serializeSession(session: {
   };
 }
 
-function serializeEvent(event: PostgresAgentEvent): Record<string, unknown> {
+function canReadMemories(req: Request): boolean {
+  const scopes = req.authContext?.scopes ?? [];
+  return req.authContext?.mode === 'local-dev' || scopes.includes('memories:read') || scopes.includes('*');
+}
+
+/** Mutation permission returns a receipt, not permission to recall saved prompts. */
+function serializeSessionWriteReceipt(req: Request, session: PostgresServerSession): Record<string, unknown> {
+  if (canReadMemories(req)) {
+    return serializeSession(session);
+  }
+  // Keep the identifiers the hook client uses to attach events and finish
+  // capture, plus the resulting lifecycle state. Metadata can belong to an
+  // earlier writer when start is replayed or another client ends the session.
+  return {
+    id: session.id,
+    projectId: session.projectId,
+    teamId: session.teamId,
+    externalSessionId: session.externalSessionId,
+    contentSessionId: session.contentSessionId,
+    platformSource: session.platformSource,
+    generationStatus: session.generationStatus,
+    endedAtEpoch: session.endedAtEpoch,
+  };
+}
+
+function serializeEvent(event: PostgresAgentEvent, includeContent = true): Record<string, unknown> {
   return {
     id: event.id,
     projectId: event.projectId,
@@ -2283,8 +2323,8 @@ function serializeEvent(event: PostgresAgentEvent): Record<string, unknown> {
     sourceEventId: event.sourceEventId,
     eventType: event.eventType,
     platformSource: event.platformSource,
-    payload: event.payload,
-    metadata: event.metadata,
+    // Replayed native receipts can return another writer's stored event.
+    ...(includeContent ? { payload: event.payload, metadata: event.metadata } : {}),
     occurredAtEpoch: event.occurredAtEpoch,
     receivedAtEpoch: event.receivedAtEpoch,
     createdAtEpoch: event.createdAtEpoch,
@@ -2297,6 +2337,7 @@ function serializeObservation(observation: {
   teamId: string;
   serverSessionId: string | null;
   contentSessionId?: string | null;
+  platformSource?: string | null;
   kind: string;
   content: string;
   metadata: Record<string, unknown>;
@@ -2309,6 +2350,7 @@ function serializeObservation(observation: {
     teamId: observation.teamId,
     serverSessionId: observation.serverSessionId,
     ...(observation.contentSessionId !== undefined ? { contentSessionId: observation.contentSessionId } : {}),
+    ...(observation.platformSource !== undefined ? { platformSource: observation.platformSource } : {}),
     kind: observation.kind,
     content: observation.content,
     metadata: observation.metadata,

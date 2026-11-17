@@ -14,10 +14,13 @@ Input is the goals JSON the map step writes:
   }
 
 Every evidence quote is checked against owner-prompts.md: it has to appear in a prompt headed with that
-minute. Quotes may skip words with "..." between the pieces. Unverified quotes stop the save and are listed.
-A quote dated before the first prompt in owner-prompts.md has aged out of the window (an updated snapshot
-carries older quotes forward): it is dropped, and so is an item left with no quote. With no prompts in the file,
-every quote has aged out. When every item ages out, the snapshot is saved empty, which clears the old goals.
+minute. Quotes may skip words with "..." between the pieces. On a fresh save (no --carried-before), an
+unverified quote is dropped, and so is an item left with no quote; the dropped quotes are reported, and
+the save is still refused when no verified item remains. On an update saved with --carried-before, a
+newly written quote that fails stops the save and is listed. A quote dated before the first prompt in owner-prompts.md has aged out of
+the window (an updated snapshot carries older quotes forward): it is dropped, and so is an item left
+with no quote. With no prompts in the file, every quote has aged out. When every item ages out, the
+snapshot is saved empty, which clears the old goals.
 
 Where each kind goes, all through the local worker:
   focus areas  "owner-goals" rows (task "Focus area: <title>", goal_kind focus-area), and, for an area that
@@ -44,7 +47,7 @@ Usage: python3 save_goals.py --goals owner-goals.json --prompts owner-prompts.md
                              [--ledger-dir <dir>] [--dry-run]
        python3 save_goals.py --print-focus-areas
 """
-import argparse, datetime, json, os, re, sys, traceback, urllib.error, urllib.request
+import argparse, datetime, json, os, re, sys, traceback, urllib.error, urllib.parse, urllib.request
 
 LIST_NAME = "owner-goals"
 MAX_FIELDS_JSON_CHARS = 2000  # MAX_WORK_STATE_FIELDS_JSON_CHARS in WorkStateRoutes.ts
@@ -73,13 +76,27 @@ def data_dir():
     return os.environ.get("CLAUDE_MEM_DATA_DIR") or os.path.expanduser("~/.claude-mem")
 
 
-def worker_base_url():
-    settings = {}
+def read_settings():
     try:
         with open(os.path.join(data_dir(), "settings.json")) as settings_file:
             settings = json.load(settings_file)
+            return settings if isinstance(settings, dict) else {}
     except (OSError, ValueError):
-        pass
+        return {}
+
+
+def local_api_token_headers():
+    """The local API token header (#5141), read from settings.json alone as the worker reads it; none when unset,
+    and none unless the worker is on loopback: a host naming another machine never gets the token."""
+    token = read_settings().get("CLAUDE_MEM_LOCAL_API_TOKEN")
+    token = token.strip() if isinstance(token, str) else ""
+    host = urllib.parse.urlsplit(worker_base_url()).hostname or ""
+    loopback = host in ("localhost", "::1") or host.endswith(".localhost") or re.fullmatch(r"127(?:\.\d{1,3}){3}", host) is not None
+    return {"X-Claude-Mem-Token": token} if token and loopback else {}
+
+
+def worker_base_url():
+    settings = read_settings()
     port = os.environ.get("CLAUDE_MEM_WORKER_PORT") or settings.get("CLAUDE_MEM_WORKER_PORT") or str(37700 + (os.getuid() if hasattr(os, "getuid") else 77) % 100)
     host = os.environ.get("CLAUDE_MEM_WORKER_HOST") or settings.get("CLAUDE_MEM_WORKER_HOST") or "127.0.0.1"
     host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
@@ -91,9 +108,11 @@ class NothingWritten(Exception):
 
 
 def worker_request(base_url, path, body=None, nothing_written_on=()):
+    headers = {"Content-Type": "application/json"} if body is not None else {}
+    headers.update(local_api_token_headers())   # every base_url here is worker_base_url(): this machine's worker
     request = urllib.request.Request(base_url + path, method="POST" if body is not None else "GET",
                                      data=json.dumps(body).encode() if body is not None else None,
-                                     headers={"Content-Type": "application/json"} if body is not None else {})
+                                     headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return response.read().decode()
@@ -158,6 +177,28 @@ def drop_unverifiable_carried_quotes(goals, prompts, carried_before):
             quotes = item.get("evidence") or []
             item["evidence"] = [quote for quote in quotes
                                 if str(quote.get("at", ""))[:16] >= carried_before or not unverified_quotes({"asks": [{"evidence": [quote]}]}, prompts)]
+            dropped += [f'{label(item)}: {quote.get("at")}' for quote in quotes if quote not in item["evidence"]]
+            if not quotes or item["evidence"]:
+                kept.append(item)
+        goals[kind_key] = kept
+    return dropped
+
+
+def drop_unverifiable_fresh_quotes(goals, prompts):
+    """Drop unverified quotes from a fresh map, and items they leave without one. Returns what was dropped.
+
+    A save without --carried-before holds only quotes this answer wrote. Verbatim quoting gets less
+    accurate as a first map's window grows, so one inexact quote must not refuse every verified quote
+    beside it. No unverified words are saved: each item still needs a quote that checks out. With
+    --carried-before, an update's new quotes stay strict, while drop_unverifiable_carried_quotes
+    handles the old ones."""
+    dropped = []
+    for kind_key in ITEM_KEYS:
+        kept = []
+        for item in goals.get(kind_key, []):
+            quotes = item.get("evidence") or []
+            item["evidence"] = [quote for quote in quotes
+                                if not unverified_quotes({"asks": [{"evidence": [quote]}]}, prompts)]
             dropped += [f'{label(item)}: {quote.get("at")}' for quote in quotes if quote not in item["evidence"]]
             if not quotes or item["evidence"]:
                 kept.append(item)
@@ -319,7 +360,8 @@ def main():
     parser.add_argument("--end", type=datetime.date.fromisoformat, help="day after the last day the prompts cover, YYYY-MM-DD")
     parser.add_argument("--carried-before", help="local minute the saved goals were exported, YYYY-MM-DD HH:MM: an older quote that no longer matches is dropped instead of refused")
     parser.add_argument("--ledger-dir", help="My Work's folder holding story.json (default: <claude-mem data dir>/work-view)")
-    parser.add_argument("--dry-run", action="store_true", help="validate and print the writes without saving")
+    parser.add_argument("--dry-run", action="store_true", help="validate and print the writes and checked goals without saving")
+    parser.add_argument("--save-key", help="complete payload-bound focus save key retained by a batched refresh")
     parser.add_argument("--print-focus-areas", action="store_true", help="print the saved focus areas to match against, then exit")
     args = parser.parse_args()
     base_url = worker_base_url()
@@ -335,13 +377,18 @@ def main():
     ledger_dir = args.ledger_dir or os.path.join(data_dir(), "work-view")
 
     goals = json.load(open(args.goals))
+    checked_input = json.dumps(goals, sort_keys=True) if args.save_key else None
     problems = shape_problems(goals)
     if problems:
         sys.exit("the goals JSON is not in the saved shape:\n- " + "\n- ".join(problems))
     prompts = prompts_by_minute(args.prompts)
     aged_out = drop_aged_quotes(goals, prompts)
     dropped_carried = drop_unverifiable_carried_quotes(goals, prompts, args.carried_before) if args.carried_before else []
+    fresh_problems = [] if args.carried_before else unverified_quotes(goals, prompts)
+    dropped_unverified = [] if args.carried_before else drop_unverifiable_fresh_quotes(goals, prompts)
     areas, asks, rules = goals.get("focus_areas", []), goals.get("asks", []), goals.get("rules", [])
+    if dropped_unverified and not areas and not asks and not rules:
+        sys.exit("these quotes are not the owner's words at that time, and every item was dropped with them; fix them in the goals JSON:\n- " + "\n- ".join(fresh_problems))
     # An ask whose area aged out of the window keeps its words but no longer names an area; it is reported.
     kept_titles = {str(area["title"]).strip() for area in areas}
     unlinked_asks = [ask.get("title") for ask in asks if ask.get("focus_area") is not None and ask["focus_area"] not in kept_titles]
@@ -357,6 +404,8 @@ def main():
     problems = unverified_quotes(goals, prompts)
     if problems:
         sys.exit("these quotes are not the owner's words at that time; fix them in the goals JSON:\n- " + "\n- ".join(problems))
+    if checked_input is not None and json.dumps(goals, sort_keys=True) != checked_input:
+        sys.exit("owner prompt evidence changed since this checked save; no writes were made, and this checked payload cannot be saved")
     titles = [f'{KIND_LABELS["focus-area"]}: {str(area["title"]).strip()}' for area in areas] + [f'{KIND_LABELS["ask"]}: {str(ask["title"]).strip()}' for ask in asks]
     if len(set(titles)) != len(titles):
         sys.exit("two items share a title; give each focus area and ask its own title")
@@ -372,6 +421,10 @@ def main():
     # A past month suggests no areas and no rules: those describe the owner now.
     focus_request = {"areas": [mined_area(area) for area in areas]} if not history else None
     preferences = [rule_preference(rule) for rule in rules] if not history else []
+    if args.save_key:
+        if history or not re.fullmatch(r"[a-f0-9]{24}:[a-f0-9]{64}", args.save_key):
+            sys.exit("--save-key is a current-goals nonce and payload hash")
+        focus_request["save_key"] = args.save_key
 
     if focus_request is not None:
         long_evidence = [area["name"] for area in focus_request["areas"] if len(area["evidence"]) > MAX_AREA_EVIDENCE_CHARS]
@@ -389,8 +442,9 @@ def main():
     if args.dry_run:
         # The ids a save would give new areas are not known until the worker writes them.
         area_ids = [area["matches"] for area in focus_request["areas"]] if focus_request else [None] * len(areas)
-        print(json.dumps({"list": list_name, "focus_areas": focus_request, "writes": writes_for(area_ids),
-                          "rules": preferences, "unlinked_asks": unlinked_asks}, indent=2))
+        print(json.dumps({"list": list_name, "goals": goals, "focus_areas": focus_request, "writes": writes_for(area_ids),
+                          "rules": preferences, "dropped_unverified_quotes": dropped_unverified,
+                          "unlinked_asks": unlinked_asks}, indent=2))
         return
     view = json.loads(worker_request(base_url, "/api/work-view"))
     if "goals" not in view or "focusAreas" not in view or (history and "goalHistory" not in view):
@@ -413,12 +467,13 @@ def main():
     print(json.dumps({"saved_focus_areas": len(areas), "saved_asks": len(asks), "saved_rules": len(preferences),
                       "new_focus_areas": sum(1 for area in areas if area["matches"] is None) if not history else 0,
                       "dropped_previous_items": len(stale_tasks), "aged_out_items": aged_out, "dropped_carried_quotes": dropped_carried,
+                      "dropped_unverified_quotes": dropped_unverified,
                       "unlinked_asks": unlinked_asks, "rules_file": story_path, "rules_not_saved_for_past_month": len(rules) if history else 0,
                       "view": f"{base_url}/#cards", "list": list_name, "history": history}))
 
 
 def write_everything(base_url, list_name, previous, focus_request, writes_for, ledger_dir, preferences, history, area_count, shared=False):
-    """The writes, in order: My Focus areas, owner-goals rows, then rules. Everything was validated before this runs."""
+    """Write areas, items and rules before the list watermark. Everything was validated before this runs."""
     area_ids = [None] * area_count
     if focus_request is not None and focus_request["areas"]:
         area_ids = json.loads(worker_request(base_url, "/api/work-view/focus/owner-goals", focus_request, nothing_written_on=(400,)))["focusAreaIds"]
@@ -429,11 +484,18 @@ def write_everything(base_url, list_name, previous, focus_request, writes_for, l
     stale_tasks = [item["task"] for item in previous.get("areas", []) + previous.get("asks", []) if item["task"] not in new_tasks]
 
     home = os.path.expanduser("~")
-    for fields in writes + [{"task": task, "status": "dropped"} for task in stale_tasks]:
+
+    def save_entry(fields):
         reply = worker_request(base_url, "/api/work-state/entries", {"cwd": home, "list": list_name, "fields": fields})
         if not reply.startswith("Saved to"):
             sys.exit(f"work state did not save: {reply[:300]}")
-    return (save_rules(ledger_dir, preferences, base_url if shared else None) if not history else None), stale_tasks
+
+    for fields in writes[1:] + [{"task": task, "status": "dropped"} for task in stale_tasks]:
+        save_entry(fields)
+    story_path = save_rules(ledger_dir, preferences, base_url if shared else None) if not history else None
+    # generated_at is the source watermark used by the next export. A partial save must not advance it.
+    save_entry(writes[0])
+    return story_path, stale_tasks
 
 
 if __name__ == "__main__":

@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'bun:test';
-import { formatMcpPayload, formatWorkerMcpResponse, mcpTextResult, workerFailureText } from '../../src/servers/mcp-text-format.js';
+import { formatMcpPayload, formatWorkerMcpResponse, formatWorkStateMcpResponse, mcpTextResult, workerFailureText } from '../../src/servers/mcp-text-format.js';
+
+describe('complete work-state read guidance', () => {
+  it('marks a shortened read and points to the complete export within the UTF-8 limit', () => {
+    const result = formatWorkStateMcpResponse('任務'.repeat(10_000));
+    expect(Buffer.byteLength(result.content[0].text)).toBeLessThanOrEqual(32 * 1024);
+    expect(result._meta).toEqual({ 'claude-mem/truncated': true });
+    expect(result.content[0].text).toContain('/api/work-state/export');
+    expect(result.content[0].text).not.toContain('request fewer selected records');
+    expect(result.content[0].text).not.toContain('\uFFFD');
+  });
+
+  it('keeps a complete small read unchanged', () => {
+    const result = formatWorkStateMcpResponse('- release\n  - [done] publish');
+    expect(result.content[0].text).toBe('- release\n  - [done] publish');
+    expect(result._meta).toEqual({ 'claude-mem/truncated': false });
+  });
+});
 
 describe('purpose-specific model responses', () => {
   it('confirms note writes without echoing the stored note or internal metadata', () => {
@@ -105,6 +122,35 @@ describe('purpose-specific model responses', () => {
     expect(JSON.stringify(list)).not.toContain('PRIVATE_');
     expect(list).not.toHaveProperty('structuredContent');
     expect(formatMcpPayload('corpus-query', { answer: 'Selected answer', session_id: 'PRIVATE_SESSION' }).content[0].text).toBe('Corpus answer:\n\nSelected answer');
+  });
+  it('says when a corpus answer saw only part of the matching observations', () => {
+    const partial = formatMcpPayload('corpus-query', { answer: 'A', session_id: 's', observations_sent: 7, observations_matching: 40 }).content[0].text;
+    expect(partial).toBe('Corpus answer:\n\nPartial excerpt: the answer saw 7 of the 40 observations that match the question.\n\nA');
+    expect(formatMcpPayload('corpus-query', { answer: 'A', observations_sent: 3, observations_matching: 3 }).content[0].text).toBe('Corpus answer:\n\nA');
+    expect(formatMcpPayload('corpus-query', { answer: 'A' }).content[0].text).toBe('Corpus answer:\n\nA');
+  });
+  it('says when nothing matched and the excerpt is only the most recent observations', () => {
+    const fallback = formatMcpPayload('corpus-query', { answer: 'A', observations_sent: 5, observations_matching: 0, observations_in_corpus: 40 }).content[0].text;
+    expect(fallback).toBe('Corpus answer:\n\nPartial excerpt: no observation matches the question, so the answer saw only the 5 most recent of the 40 in the corpus.\n\nA');
+    expect(formatMcpPayload('corpus-query', { answer: 'A', observations_sent: 3, observations_matching: 0, observations_in_corpus: 3 }).content[0].text).toBe('Corpus answer:\n\nA');
+  });
+  it('does not read a null count as zero', () => {
+    const nulls = formatMcpPayload('corpus-query', { answer: 'A', observations_sent: 5, observations_matching: null, observations_in_corpus: 40, observations_truncated: null }).content[0].text;
+    expect(nulls).toBe('Corpus answer:\n\nA');
+  });
+  it('says when the text of an observation was cut to fit the excerpt budget', () => {
+    const cut = formatMcpPayload('corpus-query', { answer: 'A', observations_sent: 1, observations_matching: 1, observations_truncated: 1 }).content[0].text;
+    expect(cut).toBe('Corpus answer:\n\nCut: the text of 1 observation the answer saw was shortened to fit the excerpt budget.\n\nA');
+    const both = formatMcpPayload('corpus-query', { answer: 'A', observations_sent: 2, observations_matching: 9, observations_truncated: 1 }).content[0].text;
+    expect(both).toContain('Partial excerpt: the answer saw 2 of the 9');
+    expect(both).toContain('Cut: the text of 1 observation the answer saw');
+    expect(formatMcpPayload('corpus-query', { answer: 'A', observations_sent: 1, observations_matching: 1, observations_truncated: 0 }).content[0].text).toBe('Corpus answer:\n\nA');
+  });
+  it('keeps the excerpt notices when a long answer is shortened', () => {
+    const text = formatMcpPayload('corpus-query', { answer: 'x'.repeat(100_000), observations_sent: 2, observations_matching: 9, observations_truncated: 1 }).content[0].text;
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(32 * 1024);
+    expect(text.startsWith('Corpus answer:\n\nPartial excerpt: the answer saw 2 of the 9')).toBe(true);
+    expect(text).toContain('Cut: the text of 1 observation the answer saw');
   });
   it('cuts long titles and excerpts without splitting an emoji', () => {
     const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;

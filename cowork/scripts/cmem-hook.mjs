@@ -314,6 +314,10 @@ const SECRET_PATTERNS = [
   /(?<=\\[nrt]|\b)(?:sntryu_[a-f0-9]{64}(?!\w)|sntrys_[A-Za-z0-9+/]{20,}={0,2}_[A-Za-z0-9+/]{43}(?![\w+/]))/g, // Sentry auth tokens
   /(?<=\\[nrt]|\b)(?:glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8}(?!\w)|glc_[A-Za-z0-9+/]{32,400}={0,2}(?![\w+/=]))/g, // Grafana service account / Cloud tokens
   /(?<=\\[nrt]|\b)PMAK-[a-f0-9]{24}-[a-f0-9]{34}(?!\w)/g,                     // Postman API keys
+  /(?<=\\[nrt]|\b)pul-[a-f0-9]{40}(?!\w)/g,                                     // Pulumi access tokens
+  /(?<=\\[nrt]|\b)dp\.pt\.[A-Za-z0-9]{43}(?!\w)/g,                              // Doppler personal tokens
+  /(?<=\\[nrt]|\b)HRKU-AA[0-9A-Za-z_-]{58}(?![\w-])/g,                          // Heroku API keys
+  /(?<=\\[nrt]|\b)ATATT3[A-Za-z0-9_=-]{186}(?![\w=-])/g,                        // Atlassian API tokens
   /(?<=\\[nrt]|\b)cmem_[A-Za-z0-9_-]{32,}(?!\w)/g,                              // claude-mem server API keys
   /(?<=\\[nrt]|\b)cm_pro_[A-Za-z0-9_-]{8,}(?!\w)/g,                             // claude-mem Pro memory keys
   // Incoming webhook URLs carry their secret in the path, so only the last

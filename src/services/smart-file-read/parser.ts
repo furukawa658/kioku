@@ -1,7 +1,7 @@
 
 import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdtempSync, mkdirSync, rmSync, existsSync, statSync, openSync, closeSync, readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, extname } from "node:path";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { logger } from "../../utils/logger.js";
@@ -105,16 +105,18 @@ function resolveGrammarPath(language: string): string | null {
 
 const QUERIES: Record<string, string> = {
   jsts: `
-(function_declaration name: (identifier) @name) @func
-(generator_function_declaration name: (identifier) @name) @func
-(lexical_declaration (variable_declarator name: (identifier) @name value: [(arrow_function) (function_expression) (generator_function)])) @const_func
-(variable_declaration (variable_declarator name: (identifier) @name value: [(arrow_function) (function_expression) (generator_function)])) @const_func
+(function_declaration name: (identifier) @name body: (_) @signature_body) @func @native_signature
+(ambient_declaration (function_signature name: (identifier) @name)) @ts_signature
+(generator_function_declaration name: (identifier) @name body: (_) @signature_body) @func @native_signature
+(lexical_declaration kind: ["const" "let"] @signature_prefix (variable_declarator name: (identifier) @name value: [(arrow_function body: (_) @signature_body) (function_expression body: (_) @signature_body) (generator_function body: (_) @signature_body)]) @signature_start) @const_func @native_signature
+(variable_declaration "var" @signature_prefix (variable_declarator name: (identifier) @name value: [(arrow_function body: (_) @signature_body) (function_expression body: (_) @signature_body) (generator_function body: (_) @signature_body)]) @signature_start) @const_func @native_signature
 (class_declaration name: (type_identifier) @name) @cls
 (abstract_class_declaration name: (type_identifier) @name) @cls
-(method_definition name: [(property_identifier) (private_property_identifier) (string) (number) (computed_property_name)] @name) @method
-(abstract_method_signature name: [(property_identifier) (private_property_identifier) (string) (number) (computed_property_name)] @name) @method
-(public_field_definition name: (_) @name value: [(arrow_function) (function_expression) (generator_function)]) @method
-(public_field_definition name: (_) @name value: (parenthesized_expression [(arrow_function) (function_expression) (generator_function)])) @method
+(method_definition (["get" "set"] @accessor)? name: [(property_identifier) (private_property_identifier) (string) (number) (computed_property_name)] @name body: (_) @signature_body) @method @native_signature
+(abstract_method_signature (["get" "set"] @accessor)? name: [(property_identifier) (private_property_identifier) (string) (number) (computed_property_name)] @name) @method @native_signature
+(class_body (abstract_method_signature) @terminated_signature . (comment)* . [";" ","] @signature_terminator)
+(public_field_definition name: (_) @name value: [(arrow_function body: (_) @signature_body) (function_expression body: (_) @signature_body) (generator_function body: (_) @signature_body)]) @method @native_signature
+(public_field_definition name: (_) @name value: (parenthesized_expression [(arrow_function body: (_) @signature_body) (function_expression body: (_) @signature_body) (generator_function body: (_) @signature_body)])) @method @native_signature
 (interface_declaration name: (type_identifier) @name) @iface
 (type_alias_declaration name: (type_identifier) @name) @tdef
 (enum_declaration name: (identifier) @name) @enm
@@ -129,14 +131,14 @@ const QUERIES: Record<string, string> = {
   // cannot share the jsts query — tree-sitter aborts query compilation on the first
   // unknown node type. Class names are (identifier) here, not (type_identifier).
   js: `
-(function_declaration name: (identifier) @name) @func
-(generator_function_declaration name: (identifier) @name) @func
-(lexical_declaration (variable_declarator name: (identifier) @name value: [(arrow_function) (function_expression) (generator_function)])) @const_func
-(variable_declaration (variable_declarator name: (identifier) @name value: [(arrow_function) (function_expression) (generator_function)])) @const_func
+(function_declaration name: (identifier) @name body: (_) @signature_body) @func @native_signature
+(generator_function_declaration name: (identifier) @name body: (_) @signature_body) @func @native_signature
+(lexical_declaration kind: ["const" "let"] @signature_prefix (variable_declarator name: (identifier) @name value: [(arrow_function body: (_) @signature_body) (function_expression body: (_) @signature_body) (generator_function body: (_) @signature_body)]) @signature_start) @const_func @native_signature
+(variable_declaration "var" @signature_prefix (variable_declarator name: (identifier) @name value: [(arrow_function body: (_) @signature_body) (function_expression body: (_) @signature_body) (generator_function body: (_) @signature_body)]) @signature_start) @const_func @native_signature
 (class_declaration name: (identifier) @name) @cls
-(method_definition name: [(property_identifier) (private_property_identifier) (string) (number) (computed_property_name)] @name) @method
-(field_definition property: (_) @name value: [(arrow_function) (function_expression) (generator_function)]) @method
-(field_definition property: (_) @name value: (parenthesized_expression [(arrow_function) (function_expression) (generator_function)])) @method
+(method_definition (["get" "set"] @accessor)? name: [(property_identifier) (private_property_identifier) (string) (number) (computed_property_name)] @name body: (_) @signature_body) @method @native_signature
+(field_definition property: (_) @name value: [(arrow_function body: (_) @signature_body) (function_expression body: (_) @signature_body) (generator_function body: (_) @signature_body)]) @method @native_signature
+(field_definition property: (_) @name value: (parenthesized_expression [(arrow_function body: (_) @signature_body) (function_expression body: (_) @signature_body) (generator_function body: (_) @signature_body)])) @method @native_signature
 (import_statement) @imp
 (export_statement) @exp
 `,
@@ -145,13 +147,14 @@ const QUERIES: Record<string, string> = {
 (decorated_definition definition: (_) @decorated_inner) @decorated_outer
 (function_definition name: (identifier) @name type_parameters: (_)? @sig_end parameters: (_) @sig_end return_type: (_)? @sig_end body: (block) @body) @func
 (class_definition name: (identifier) @name type_parameters: (_)? @sig_end superclasses: (_)? @sig_end body: (block) @body) @cls
+(block . (expression_statement [(string) @python_docstring (concatenated_string (string) @python_docstring)])) @python_docstring_body
 (import_statement) @imp
 (import_from_statement) @imp
 `,
 
   go: `
-(function_declaration name: (identifier) @name) @func
-(method_declaration receiver: (parameter_list (parameter_declaration type: (_) @receiver)) name: (field_identifier) @name) @method
+(function_declaration name: (identifier) @name body: (_)? @signature_body) @func @native_signature
+(method_declaration receiver: (parameter_list (parameter_declaration type: (_) @receiver)) name: (field_identifier) @name body: (_)? @signature_body) @method @native_signature
 (type_declaration (type_spec name: (type_identifier) @name)) @tdef
 (type_declaration (type_alias name: (type_identifier) @name)) @tdef
 (type_declaration "(" (type_spec name: (type_identifier) @name) @tdef)
@@ -161,7 +164,7 @@ const QUERIES: Record<string, string> = {
 `,
 
   rust: `
-(function_item name: (identifier) @name) @func
+(function_item name: (identifier) @name body: (_) @signature_body) @func @native_signature
 (struct_item name: (type_identifier) @name) @struct_def
 (enum_item name: (type_identifier) @name) @enm
 (trait_item name: (type_identifier) @name) @trait_def
@@ -189,8 +192,12 @@ const QUERIES: Record<string, string> = {
 `,
 
   java: `
-(method_declaration name: (identifier) @name) @method
-(constructor_declaration name: (identifier) @name parameters: (formal_parameters) @parameters) @ctor
+(method_declaration name: (identifier) @name body: (_)? @signature_body) @method @native_signature
+(constructor_declaration name: (identifier) @name parameters: (formal_parameters) @parameters body: (_) @signature_body) @ctor @native_signature
+(record_declaration
+  parameters: (formal_parameters) @parameters
+  body: (class_body
+    (compact_constructor_declaration name: (identifier) @name body: (_) @signature_body) @ctor @native_signature))
 (class_declaration name: (identifier) @name) @cls
 (record_declaration name: (identifier) @name) @cls
 (interface_declaration name: (identifier) @name) @iface
@@ -199,8 +206,11 @@ const QUERIES: Record<string, string> = {
 `,
 
   c: `
-(function_definition) @func
-(function_declarator declarator: (identifier) @function_name)
+(function_definition body: (_)? @signature_body) @func @native_signature
+(function_declarator declarator: (identifier) @function_name) @c_named_function
+(declaration declarator: (_) @c_declarator) @c_declaration
+(parameter_list) @c_nonfunction_scope
+(init_declarator) @c_nonfunction_scope
 (type_definition type: (_) @aliased_type declarator: (type_identifier) @name) @tdef
 (struct_specifier name: (type_identifier) @name body: (field_declaration_list)) @struct_def
 (union_specifier name: (type_identifier) @name body: (field_declaration_list)) @struct_def
@@ -209,8 +219,13 @@ const QUERIES: Record<string, string> = {
 `,
 
   cpp: `
-(function_definition) @func
-(function_declarator declarator: [(identifier) (field_identifier) (qualified_identifier) (destructor_name) (operator_name)] @function_name)
+(function_definition body: (_)? @signature_body) @func @native_signature
+(function_declarator declarator: [(identifier) (field_identifier) (qualified_identifier) (destructor_name) (operator_name)] @function_name) @c_named_function
+(declaration declarator: (_) @c_declarator) @c_declaration
+(field_declaration declarator: (_) @c_declarator) @c_declaration
+(template_declaration (declaration) @decorated_inner) @decorated_outer
+(parameter_list) @c_nonfunction_scope
+(init_declarator) @c_nonfunction_scope
 (type_definition type: (_) @aliased_type declarator: (type_identifier) @name) @tdef
 (class_specifier name: (type_identifier) @name body: (field_declaration_list)) @cls
 (struct_specifier name: (type_identifier) @name body: (field_declaration_list)) @struct_def
@@ -221,20 +236,20 @@ const QUERIES: Record<string, string> = {
 `,
 
   kotlin: `
-(secondary_constructor (function_value_parameters) @parameters) @kotlin_ctor
-(function_declaration (simple_identifier) @name) @func
+(secondary_constructor (function_value_parameters) @parameters "{"? @signature_body) @kotlin_ctor @native_signature
+(function_declaration (simple_identifier) @name (function_body)? @signature_body) @func @native_signature
 (class_declaration (type_identifier) @name) @cls
 (object_declaration (type_identifier) @name) @cls
 (import_header) @imp
 `,
 
   swift: `
-(init_declaration name: "init" @name) @swift_init
+(init_declaration name: "init" @name body: (_)? @signature_body) @swift_init @native_signature
 (init_declaration (parameter) @swift_parameter) @swift_parameters
 (init_declaration (type_parameters) @swift_generics) @swift_header
 (init_declaration (type_constraints) @swift_constraints) @swift_header
-(deinit_declaration "deinit" @name) @method
-(function_declaration name: (simple_identifier) @name) @func
+(deinit_declaration "deinit" @name body: (_) @signature_body) @method @native_signature
+(function_declaration name: (simple_identifier) @name body: (_) @signature_body) @func @native_signature
 (class_declaration name: (type_identifier) @name) @cls
 (class_declaration declaration_kind: "extension" name: (_) @name) @impl_def
 (protocol_declaration name: (type_identifier) @name) @iface
@@ -242,12 +257,12 @@ const QUERIES: Record<string, string> = {
 `,
 
   php: `
-(function_definition name: (name) @name) @func
+(function_definition name: (name) @name body: (_) @signature_body) @func @native_signature
 (class_declaration name: (name) @name) @cls
 (interface_declaration name: (name) @name) @iface
 (trait_declaration name: (name) @name) @trait_def
 (enum_declaration name: (name) @name) @enm
-(method_declaration name: (name) @name) @method
+(method_declaration name: (name) @name body: (_)? @signature_body) @method @native_signature
 (namespace_use_declaration) @imp
 `,
 
@@ -261,7 +276,7 @@ const QUERIES: Record<string, string> = {
 `,
 
   scala: `
-(function_definition name: (identifier) @name) @func
+(function_definition name: (identifier) @name body: (_) @signature_body) @func @native_signature
 (class_definition name: (identifier) @name) @cls
 (object_definition name: (identifier) @name) @cls
 (trait_definition name: (identifier) @name) @trait_def
@@ -269,7 +284,7 @@ const QUERIES: Record<string, string> = {
 `,
 
   bash: `
-(function_definition name: (word) @name) @func
+(function_definition name: (word) @name body: (_) @signature_body) @func @native_signature
 `,
 
   haskell: `
@@ -285,11 +300,11 @@ const QUERIES: Record<string, string> = {
 `,
 
   zig: `
-(function_declaration name: (identifier) @name) @func
+(function_declaration name: (identifier) @name body: (_)? @signature_body) @func @native_signature
 (variable_declaration (identifier) @name [(struct_declaration) (enum_declaration) (union_declaration) (opaque_declaration)]) @cls
-(test_declaration (string) @name) @func
-(test_declaration (identifier) @name) @doctest
-(test_declaration . (block)) @func
+(test_declaration (string) @name (block) @signature_body) @func @native_signature
+(test_declaration (identifier) @name (block) @signature_body) @doctest @native_signature
+(test_declaration . (block) @signature_body) @func @native_signature
 `,
 
   css: `
@@ -340,8 +355,8 @@ const QUERIES: Record<string, string> = {
 `,
 
   markdown: `
-(atx_heading heading_content: (inline) @name) @heading
-(setext_heading heading_content: (paragraph) @name) @heading
+(atx_heading [(atx_h1_marker) (atx_h2_marker) (atx_h3_marker) (atx_h4_marker) (atx_h5_marker) (atx_h6_marker)] @atx_marker heading_content: (inline) @name) @heading
+(setext_heading heading_content: (paragraph (inline) @name) [(setext_h1_underline) @setext_h1 (setext_h2_underline) @setext_h2]) @heading
 (fenced_code_block (info_string (language) @name)) @code_block
 (fenced_code_block) @code_block
 (minus_metadata) @frontmatter
@@ -596,6 +611,8 @@ function parseMultiFileQueryOutput(output: string): Map<string, RawMatch[]> {
 
 const KIND_MAP: Record<string, CodeSymbol["kind"]> = {
   func: "function",
+  ts_signature: "function",
+  c_declaration: "function",
   rust_signature: "function",
   const_func: "function",
   cls: "class",
@@ -704,23 +721,18 @@ function findCommentAbove(lines: string[], startRow: number, language: string): 
   return commentLines.length > 0 ? commentLines.join("\n").trim() : undefined;
 }
 
-// A docstring is the first statement of the body, which a multi-line signature
-// pushes below the `def` row. Its text can start on the row after the opening
-// quotes, and a raw or unicode docstring opens with r""" or u""".
-function findPythonDocstringFromLines(lines: string[], bodyRow: number, endRow: number): string | undefined {
-  for (let i = bodyRow; i <= Math.min(bodyRow + 2, endRow); i++) {
-    const trimmed = lines[i]?.trim();
-    if (!trimmed) continue;
-    if (!/^[rRuU]?(?:"""|''')/.test(trimmed)) break;
-    let docstring = trimmed.replace(/^[rRuU]/, "");
-    if (docstring.length === 3) {
-      const summary = lines.slice(i + 1, endRow + 1).find(line => line.trim() !== "");
-      if (summary !== undefined) docstring += `\n${summary.trim()}`;
-    }
-    // An empty docstring has no summary, so the comment above stays the one.
-    return docstring.replace(/"""|'''/g, "").trim() ? docstring : undefined;
+// The first string statement is a docstring even when it shares the `def` or
+// `class` row. Native ranges also exclude statements following its semicolon.
+function pythonDocstringText(lines: string[], captures: RawCapture[]): string | undefined {
+  let text = "";
+  for (const capture of captures) {
+    const literal = captureLines(lines, capture).join("\n");
+    const opening = /^[rRuU]?("""|'''|"|')/.exec(literal);
+    // Bytes and interpolated strings are expressions, not Python docstrings.
+    if (!opening) return undefined;
+    text += literal.slice(opening[0].length, -opening[1].length);
   }
-  return undefined;
+  return text.trim() || undefined;
 }
 
 function isExported(
@@ -781,9 +793,12 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
   // the whole-group match a member also produces is dropped.
   const goTypeGroups = new Set<string>();
   const decoratedRanges = new Map<string, RawCapture>();
+  const pythonDocstrings = new Map<string, RawCapture[]>();
+  const signatureTerminators = new Map<string, RawCapture>();
   const swiftParameters = new Map<string, string[]>();
   const swiftHeaders = new Map<string, { generics?: string; constraints?: string }>();
   const haskellSignatures = new Set<CodeSymbol>();
+  const cDeclarations = new Map<CodeSymbol, RawCapture>();
   const haskellDefaults: RawCapture[] = [];
   const ranges = new Map<CodeSymbol, RawCapture>();
   const implementedTraits = new Map<CodeSymbol, string>();
@@ -791,8 +806,20 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
   const containers: Array<{ sym: CodeSymbol; range: RawCapture }> = [];
 
   for (const match of matches) {
+    const docstringBody = match.captures.find(c => c.tag === "python_docstring_body");
+    const docstring = match.captures.find(c => c.tag === "python_docstring");
+    if (docstringBody && docstring) {
+      const key = `${docstringBody.startRow}:${docstringBody.startCol}`;
+      const parts = pythonDocstrings.get(key) ?? [];
+      parts.push(docstring);
+      pythonDocstrings.set(key, parts);
+    }
     for (const cap of match.captures) {
       if (cap.tag === "haskell_default") haskellDefaults.push(cap);
+      if (cap.tag === "terminated_signature") {
+        const terminator = match.captures.find(c => c.tag === "signature_terminator");
+        if (terminator) signatureTerminators.set(`${cap.startRow}:${cap.startCol}`, terminator);
+      }
       if (cap.tag === "exp") {
         exportRanges.push(cap);
       }
@@ -856,9 +883,39 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
     return capture && (capture.endRow < definition.endRow
       || (capture.endRow === definition.endRow && capture.endCol <= definition.endCol)) ? capture : undefined;
   };
+  // A declarator can contain callback signatures or an initializer's local
+  // functions. Exclude those native scopes before associating header APIs.
+  // Sweep sorted ranges once instead of rescanning every parameter list for
+  // each declaration in a large header.
+  const excludedScopes = matches.flatMap(match => match.captures.filter(c => c.tag === "c_nonfunction_scope"))
+    .sort((a, b) => a.startRow - b.startRow || a.startCol - b.startCol);
+  const declarationNames = new Set<RawCapture>();
+  let scopeIndex = 0;
+  let farthestScope: RawCapture | undefined;
+  for (const name of functionNames) {
+    while (scopeIndex < excludedScopes.length) {
+      const scope = excludedScopes[scopeIndex];
+      if (scope.startRow > name.startRow || (scope.startRow === name.startRow && scope.startCol > name.startCol)) break;
+      if (!farthestScope || scope.endRow > farthestScope.endRow
+        || (scope.endRow === farthestScope.endRow && scope.endCol > farthestScope.endCol)) farthestScope = scope;
+      scopeIndex++;
+    }
+    if (!farthestScope || !rangeContains(farthestScope, name)) declarationNames.add(name);
+  }
+  const namedDeclarators = new Map<RawCapture, RawCapture>();
+  for (const match of matches) {
+    const declarator = match.captures.find(c => c.tag === "c_named_function");
+    const name = match.captures.find(c => c.tag === "function_name");
+    if (declarator && name && declarationNames.has(name)) namedDeclarators.set(name, declarator);
+  }
   for (const match of matches) {
     const kindCapture = match.captures.find(c => KIND_MAP[c.tag]);
+    const declaration = match.captures.find(c => c.tag === "c_declarator");
+    const declaredName = declaration && findFunctionName(declaration);
+    const namedDeclarator = declaredName && namedDeclarators.get(declaredName);
+    if (kindCapture?.tag === "c_declaration" && !namedDeclarator) continue;
     const nameCapture = match.captures.find(c => c.tag === "name")
+      ?? (kindCapture?.tag === "c_declaration" ? declaredName : undefined)
       ?? (kindCapture?.tag === "func" && (language === "c" || language === "cpp")
         ? findFunctionName(kindCapture)
         : undefined);
@@ -873,11 +930,14 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
     const endRow = kindCapture.endCol === 0 && kindCapture.endRow > startRow
       ? kindCapture.endRow - 1
       : kindCapture.endRow;
-    const kind = KIND_MAP[kindCapture.tag];
+    const accessor = match.captures.find(c => c.tag === "accessor");
+    const accessorKeyword = accessor && captureText(lines, accessor);
+    const kind = accessorKeyword === "get" ? "getter" : accessorKeyword === "set" ? "setter" : KIND_MAP[kindCapture.tag];
     // The CLI prints `text` only for one-row captures and cuts it at the first
     // backtick, so names come from the source range. A zero-width MISSING node
     // from error recovery leaves nothing to read and stays `anonymous`.
     let name = (nameCapture && captureText(lines, nameCapture)) || "anonymous";
+    if (accessorKeyword) name = `${accessorKeyword} ${name}`;
     if (kindCapture.tag === "ctor") {
       const parameters = match.captures.find(c => c.tag === "parameters");
       if (parameters) name += captureLines(lines, parameters).join(" ").replace(/\s+/g, " ").trim();
@@ -897,10 +957,11 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
     if (receiverText) name = `${receiverText}.${name}`;
 
     let signature: string;
-    if (language === "rust" && ["rust_signature", "tdef", "const_def"].includes(kindCapture.tag)) {
+    if ((language === "rust" && ["rust_signature", "tdef", "const_def"].includes(kindCapture.tag))
+      || kindCapture.tag === "c_declaration") {
       // These declarations end at their semicolon; there is no function body
       // from which the generic signature extractor could infer a boundary.
-      const declaration = captureText(lines, kindCapture);
+      const declaration = captureText(lines, decoratedRanges.get(`${startRow}:${kindCapture.startCol}`) ?? kindCapture);
       signature = declaration.length > 200 ? declaration.slice(0, 197) + "..." : declaration;
     } else if (language === "markdown" && kind === "section") {
       // Setext heading paragraphs include a trailing newline (and can span
@@ -908,10 +969,12 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
       if (nameCapture && !nameCapture.text) {
         name = captureLines(lines, nameCapture).join(" ").trim().replace(/\s+/g, " ");
       }
-      const headingLine = lines[startRow] || "";
-      const hashMatch = headingLine.match(/^(#{1,6})\s/);
-      const underline = lines[endRow] || "";
-      const level = hashMatch ? hashMatch[1].length : /^\s*-+\s*$/.test(underline) ? 2 : 1;
+      // Markdown permits indentation and container prefixes before a heading.
+      // Its native marker is authoritative even inside a list or block quote;
+      // a regex over the whole source line would mistake those headings for H1.
+      const marker = match.captures.find(c => c.tag === "atx_marker");
+      const level = marker ? captureText(lines, marker).length
+        : match.captures.some(c => c.tag === "setext_h2") ? 2 : 1;
       signature = `${"#".repeat(level)} ${name}`;
     } else if (language === "markdown" && kind === "code") {
       const langTag = name !== "anonymous" ? name : "";
@@ -953,14 +1016,42 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
       }
       // Extract the declaration independently: prefix comments may contain
       // braces or span more rows than the declaration signature budget.
-      signature = exportPrefix + extractSignatureFromLines(lines, startRow, endRow,
-        200 - exportPrefix.length, kindCapture.startCol);
+      if (kindCapture.tag === "ts_signature") {
+        // A declared function has no body. Braces in its parameter or return
+        // types belong to the signature, which can span multiple lines.
+        const declaration = exportPrefix + captureText(lines, kindCapture);
+        signature = declaration.length > 200 ? declaration.slice(0, 197) + "..." : declaration;
+      } else if (match.captures.some(c => c.tag === "native_signature")) {
+        // Parameter patterns, defaults, annotations and return types can all
+        // contain braces. Only the parsed body marks the end of the header.
+        // A bodyless declaration ends at its own native range.
+        const start = match.captures.find(c => c.tag === "signature_start") ?? kindCapture;
+        const body = match.captures.find(c => c.tag === "signature_body");
+        const prefix = match.captures.find(c => c.tag === "signature_prefix");
+        // TypeScript keeps an abstract method's explicit terminator beside
+        // the signature node. Preserve that token without taking a neighbour.
+        const end = signatureTerminators.get(`${start.startRow}:${start.startCol}`) ?? start;
+        const header = captureText(lines, body
+          ? { ...start, endRow: body.startRow, endCol: body.startCol }
+          : { ...start, endRow: end.endRow, endCol: end.endCol });
+        // Each comma-separated function variable starts at its own declarator,
+        // while retaining the shared const/let/var keyword and export prefix.
+        signature = exportPrefix + (prefix ? captureText(lines, prefix) + " " : "") + header;
+        if (signature.length > 200) signature = signature.slice(0, 197) + "...";
+      } else {
+        signature = exportPrefix + extractSignatureFromLines(lines, startRow, endRow,
+          200 - exportPrefix.length, kindCapture.startCol);
+      }
     }
 
-    const comment = language === "markdown" ? undefined : findCommentAbove(lines, startRow, language);
+    const commentStartRow = kindCapture.tag === "c_declaration"
+      ? decoratedRanges.get(`${startRow}:${kindCapture.startCol}`)?.startRow ?? startRow
+      : startRow;
+    const comment = language === "markdown" ? undefined : findCommentAbove(lines, commentStartRow, language);
     const body = match.captures.find(c => c.tag === "body");
-    const docstring = language === "python" && body
-      ? findPythonDocstringFromLines(lines, body.startRow, endRow)
+    const docstringCapture = body && pythonDocstrings.get(`${body.startRow}:${body.startCol}`);
+    const docstring = docstringCapture
+      ? pythonDocstringText(lines, docstringCapture)
       : undefined;
 
     const sym: CodeSymbol = {
@@ -982,6 +1073,7 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
     }
 
     if (kindCapture.tag === "haskell_signature") haskellSignatures.add(sym);
+    if (kindCapture.tag === "c_declaration" && namedDeclarator) cDeclarations.set(sym, namedDeclarator);
     const trait = match.captures.find(c => c.tag === "implemented_trait");
     if (trait) implementedTraits.set(sym, captureText(lines, trait));
     ranges.set(sym, decoratedRanges.get(`${startRow}:${kindCapture.startCol}`) ?? kindCapture);
@@ -1121,7 +1213,8 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
   // Pascal declares a class method inside the class and implements it later as
   // `procedure TClass.Method`, outside the class range. Move the body range
   // onto the declared member so the method unfolds once, then merge interface
-  // declarations with their implementations. Signatures are compared up to
+  // declarations with their implementations. Pascal identifiers and keywords
+  // are case-insensitive; keep original spelling for display and compare up to
   // the semicolon that ends the routine header, so `overload`/`virtual`
   // directives on either side do not split a declaration from its body.
   // Semicolons inside the parameter list separate parameter groups, so they
@@ -1134,9 +1227,9 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
         const character = signature[index];
         if (character === "(") parenDepth++;
         else if (character === ")") parenDepth = Math.max(0, parenDepth - 1);
-        else if (character === ";" && parenDepth === 0) return signature.slice(0, index + 1);
+        else if (character === ";" && parenDepth === 0) return signature.slice(0, index + 1).toLowerCase();
       }
-      return signature;
+      return signature.toLowerCase();
     };
     for (const sym of symbols) {
       if (nested.has(sym) || (sym.kind !== "function" && sym.kind !== "method")) continue;
@@ -1146,13 +1239,13 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
       const leafName = sym.name.slice(dot + 1);
       // Advanced records (`record_definition`, kind "struct") carry methods too.
       const owner = containers.find(container =>
-        (container.sym.kind === "class" || container.sym.kind === "struct") && container.sym.name === ownerName);
+        (container.sym.kind === "class" || container.sym.kind === "struct") && container.sym.name.toLowerCase() === ownerName.toLowerCase());
       if (!owner?.sym.children) continue;
       const signature = sym.signature.replace(
-        new RegExp(`^((?:class\\s+)?(?:procedure|function|constructor|destructor|operator)\\s+)${ownerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.`),
+        new RegExp(`^((?:class\\s+)?(?:procedure|function|constructor|destructor|operator)\\s+)${ownerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.`, "i"),
         "$1",
       );
-      const member = owner.sym.children.find(child => child.name === leafName
+      const member = owner.sym.children.find(child => child.name.toLowerCase() === leafName.toLowerCase()
         && signatureKey(child.signature) === signatureKey(signature));
       if (!member) continue;
       // A definition's header matches the same member as the definition body;
@@ -1171,7 +1264,7 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
     for (const sym of symbols) {
       if (nested.has(sym) || (sym.kind !== "function" && sym.kind !== "method")) continue;
       if (sym.name.includes(".")) continue;
-      const key = `${sym.name}|${signatureKey(sym.signature)}`;
+      const key = `${sym.name.toLowerCase()}|${signatureKey(sym.signature)}`;
       const previous = declarations.get(key);
       if (!previous) {
         declarations.set(key, sym);
@@ -1191,6 +1284,22 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
   }
 
   const roots = symbols.filter(s => !nested.has(s));
+  if (cDeclarations.size) {
+    // Keep the existing bare name when it is unambiguous. Only declarations
+    // sharing a sibling name gain their native parameter/qualifier spelling:
+    // overloads remain addressable, and a prototype cannot shadow the old
+    // bare-name lookup of a function body in the same source file.
+    const disambiguate = (siblings: CodeSymbol[]) => {
+      const counts = new Map<string, number>();
+      for (const symbol of siblings) counts.set(symbol.name, (counts.get(symbol.name) ?? 0) + 1);
+      for (const symbol of siblings) {
+        const declaration = cDeclarations.get(symbol);
+        if (declaration && counts.get(symbol.name)! > 1) symbol.name = captureText(lines, declaration);
+        if (symbol.children) disambiguate(symbol.children);
+      }
+    };
+    disambiguate(roots);
+  }
   if (implementedTraits.size) {
     // Keep existing unambiguous paths. Distinguish trait impls when a sibling
     // inherent or trait impl for the same receiver would otherwise shadow one.
@@ -1280,8 +1389,25 @@ export function parseFilesBatch(
 
     const queryFile = getQueryFile(getQueryKey(language));
 
-    const absolutePaths = groupFiles.map(f => f.absolutePath);
-    const batchResults = runBatchQuery(queryFile, absolutePaths, grammarPath, language);
+    // Capture offsets must refer to the same source used by buildSymbols. A
+    // file may have changed or disappeared since search read this batch.
+    // Owned names also keep literal newlines out of the CLI's line-based file
+    // headers; results still carry the caller's original paths.
+    const sourceDir = mkdtempSync(join(tmpdir(), "smart-src-batch-"));
+    const batchResults = new Map<string, RawMatch[]>();
+    try {
+      const sourcePaths = groupFiles.map((file, index) => {
+        const sourcePath = join(sourceDir, `${index}${extname(file.relativePath)}`);
+        writeFileSync(sourcePath, file.content);
+        return sourcePath;
+      });
+      const captures = runBatchQuery(queryFile, sourcePaths, grammarPath, language);
+      for (const [index, file] of groupFiles.entries()) {
+        batchResults.set(file.absolutePath, captures.get(sourcePaths[index]) ?? []);
+      }
+    } finally {
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
 
     for (const file of groupFiles) {
       const lines = file.content.split("\n");
@@ -1526,12 +1652,13 @@ export function matchScore(text: string, queryParts: string[]): number {
 export function unfoldSymbol(content: string, filePath: string, symbolName: string): string | null {
   const file = parseFile(content, filePath);
 
-  const findSymbol = (symbols: CodeSymbol[], qualified: boolean, parent?: string): CodeSymbol | null => {
+  const findSymbol = (symbols: CodeSymbol[], qualified: boolean, parent?: string, accessorAlias = false): CodeSymbol | null => {
     for (const sym of symbols) {
-      const qualifiedName = qualifySymbolName(sym.name, parent, file.language, sym.kind);
-      if ((qualified ? qualifiedName : sym.name) === symbolName) return sym;
+      const name = accessorAlias && (sym.kind === "getter" || sym.kind === "setter") ? sym.name.slice(4) : sym.name;
+      const qualifiedName = qualifySymbolName(name, parent, file.language, sym.kind);
+      if ((qualified ? qualifiedName : name) === symbolName) return sym;
       if (sym.children) {
-        const found = findSymbol(sym.children, qualified, qualifiedName);
+        const found = findSymbol(sym.children, qualified, qualifiedName, accessorAlias);
         if (found) return found;
       }
     }
@@ -1541,6 +1668,9 @@ export function unfoldSymbol(content: string, filePath: string, symbolName: stri
   // Go methods are named with their receiver (`Local.Reset`), so a bare method
   // name still unfolds the first method with that leaf, as in other languages.
   const symbol = findSymbol(file.symbols, true) ?? findSymbol(file.symbols, false)
+    // Preserve existing property-only lookups after trying the distinct
+    // accessor identities returned by outlines and search.
+    ?? findSymbol(file.symbols, true, undefined, true) ?? findSymbol(file.symbols, false, undefined, true)
     ?? (file.language === "go"
       ? file.symbols.find(sym => sym.kind === "method" && sym.name.slice(sym.name.lastIndexOf(".") + 1) === symbolName) ?? null
       : null);

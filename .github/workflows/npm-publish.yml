@@ -3,7 +3,7 @@ name: Publish to npm
 on:
   push:
     tags:
-      - 'v*'
+      - 'v[0-9]*'
 
 # npm trusted publishing (OIDC): no NPM_TOKEN secret. The package's trusted
 # publisher on npmjs.com names this repo and this workflow file.
@@ -24,7 +24,7 @@ jobs:
       - name: Install Bun (required by smoke:clean-room)
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.4
       - run: npm install --ignore-scripts
       - run: npm run build
       - run: npm run smoke:clean-room

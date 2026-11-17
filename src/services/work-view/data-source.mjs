@@ -4,12 +4,13 @@ import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { reduceWorkState } from './work-state-reduce.mjs';
+import { readWorkStateRows, reduceWorkState } from './work-state-reduce.mjs';
 import { activitySignature, buildAgentView, readAgentRecords, readEvidence } from './agent-view.mjs';
 import { ledgerSignature, openSuggestions, readLedger } from './request-groups.mjs';
-import { recordedFile, bucketFileAvailable } from './work-product.mjs';
+import { recordedFile, bucketFileAvailable, copyCoversSource, servableFile } from './work-product.mjs';
 import { buildRules, MY_RULES_LIST } from './my-rules.mjs';
-import { readSharedRecords } from './shared-record-store.mjs';
+import { readSharedRecords, workStateRowsRevision } from './shared-record-store.mjs';
+import { readWorkStateLabels, WORK_STATE_LABELS_FILE } from './work-state-labels.mjs';
 import { applySharedProjection, decorateSharedView, isSharedProjectionValue } from './shared-projection.mjs';
 import { sharedReviewDescriptor, readSharedReview, sharedSuggestionDescriptor, sharedConflictSuggestions } from './shared-reviews.mjs';
 
@@ -19,6 +20,16 @@ export { reduceWorkState } from './work-state-reduce.mjs';
 export { readFocus, readFocusAreas } from './my-focus.mjs';
 
 const normalizedKey = (value) => String(value).replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+
+// Compare against the observations used to build the view, not a second stat
+// after rendering: a file can change while linked evidence is being read.
+// Saved copies also retain the coverage decision for their suppressed source.
+function productFilesChanged(files) {
+  return files.some(({ product, available, coversSource }) => {
+    const current = product.path ? Boolean(servableFile(product)) : product.deliverable ? bucketFileAvailable(product) : true;
+    return current !== available || coversSource !== null && copyCoversSource(product, product.sourcePath) !== coversSource;
+  });
+}
 
 // Expand the same inherited read keys as SessionStore.getProjectReadKeys. A
 // worktree's older lists may be stored under a previously merged project key.
@@ -67,10 +78,13 @@ export class WorkStateSource {
     this.ledgerDir = ledgerDir;
     this.ledger = null;
     this.ledgerSignature = null;
+    this.workStateLabels = null;
+    this.labelsSignature = null;
     this.database = null;
     this.databaseIdentity = null;
     this.cachedState = reduceWorkState([], { currentProject, currentProjectScope: [parentProject, currentProject] });
     this.agentView = buildAgentView(this.cachedState, {});
+    this.productFiles = [];
     this.agentRevision = 0;
     this.activitySignature = null;
     this.activityCheckedAt = null;
@@ -113,27 +127,30 @@ export class WorkStateSource {
       const dataVersion = database.prepare('PRAGMA data_version').get().data_version;
       let revision = this.workStateRevision;
       if (!revision || dataVersion !== this.workStateDataVersion) {
-        revision = database.prepare(`SELECT COUNT(*) AS count, MAX(id) AS id${this.columns.has('sync_rev') ? ', SUM(CAST(sync_rev AS INTEGER)) AS synced_revision' : ''} FROM work_state_entries`).get();
+        revision = workStateRowsRevision(database, { syncRev: this.columns.has('sync_rev') });
         this.workStateRevision = revision;
         this.workStateDataVersion = dataVersion;
       }
-      const signature = `${revision.count}:${revision.id ?? 0}:${revision.synced_revision ?? 0}:${this.localDeviceId}`;
+      const signature = `${revision}:${this.localDeviceId}`;
       const previousTitles = this.titleCacheSignature;
       const previousLedger = this.ledgerSignature;
+      const previousLabels = this.labelsSignature;
       this.readTitleCache();
       this.readLedger();
+      this.readWorkStateLabels();
       if (!this.sharedState || signature !== this.signature) this.sharedState = readSharedRecords(database, { deviceId: this.localDeviceId, validateValue: isSharedProjectionValue });
       const now = Date.now();
       // Only background polling opts into this window. Direct reads (including
       // review writes) must still notice evidence edits that retain row IDs.
       // Owner edits and generated copy bypass it, even during a busy session.
       const reuseActivity = this.source.connected && signature === this.signature
-        && previousTitles === this.titleCacheSignature && previousLedger === this.ledgerSignature
+        && previousTitles === this.titleCacheSignature && previousLedger === this.ledgerSignature && previousLabels === this.labelsSignature
         && this.activityCheckedAt !== null && now >= this.activityCheckedAt
         && now - this.activityCheckedAt < maxActivityAgeMs;
       const activity = reuseActivity ? this.activitySignature
-        : `${activitySignature(database)}|titles:${this.titleCacheSignature}|ledger:${this.ledgerSignature}`;
-      if (signature !== this.signature || activity !== this.activitySignature || !this.source.connected) {
+        : `${activitySignature(database)}|titles:${this.titleCacheSignature}|ledger:${this.ledgerSignature}|labels:${this.labelsSignature}`;
+      const filesChanged = !reuseActivity && productFilesChanged(this.productFiles);
+      if (signature !== this.signature || activity !== this.activitySignature || filesChanged || !this.source.connected) {
         database.exec('BEGIN');
         try {
           // Resolve shared evidence only when rebuilding. A cached poll needs
@@ -141,8 +158,7 @@ export class WorkStateSource {
           // or work-state row arriving after its shared reference is visible.
           const sharedLedger = applySharedProjection(database, this.sharedState, { ledger: this.ledger, deviceId: this.localDeviceId }).ledger;
           if (signature !== this.signature || !this.source.connected) {
-            const originColumns = ['origin_device_id', 'origin_local_id'].filter(column => this.columns.has(column));
-            const entries = database.prepare(`SELECT id, project, list_name, fields, created_at_epoch${originColumns.length ? `, ${originColumns.join(', ')}` : ''} FROM work_state_entries`).all();
+            const entries = readWorkStateRows(database);
             const currentProjectScope = resolveReadScope(database, [this.parentProject, this.currentProject]);
             const requested = new Set([this.parentProject, this.currentProject].map(normalizedKey));
             // Match worker's scope_project only for directly requested legacy keys.
@@ -152,7 +168,11 @@ export class WorkStateSource {
           this.agentRevision++;
           const records = readAgentRecords(database, { workState: this.cachedState, ledger: sharedLedger });
           const shared = applySharedProjection(database, this.sharedState, { ledger: this.ledger, records, deviceId: this.localDeviceId });
-          this.agentView = { ...decorateSharedView(buildAgentView(this.cachedState, shared.records, { titleCache: this.titleCache, ledger: shared.ledger }), { ...shared, database, deviceId: this.localDeviceId }), revision: this.agentRevision };
+          const productFiles = [];
+          this.agentView = { ...decorateSharedView(buildAgentView(this.cachedState, shared.records, {
+            titleCache: this.titleCache, ledger: shared.ledger, workStateLabels: this.workStateLabels,
+            onProductFile: (product, available, coversSource) => productFiles.push({ product, available, coversSource }),
+          }), { ...shared, database, deviceId: this.localDeviceId }), revision: this.agentRevision };
           this.projectedLedger = shared.ledger;
           this.agentView.sharedState = { revision: this.sharedState.revision, ...shared.diagnostics };
           // Hash full linked evidence without sending its potentially large raw
@@ -196,6 +216,7 @@ export class WorkStateSource {
           }
           this.signature = signature;
           this.activitySignature = activity;
+          this.productFiles = productFiles;
           database.exec('COMMIT');
         } catch (error) {
           database.exec('ROLLBACK');
@@ -222,15 +243,16 @@ export class WorkStateSource {
     try {
       const database = this.openDatabase();
       const originColumns = ['origin_device_id', 'origin_local_id', 'sync_rev'].filter(column => this.columns.has(column));
+      // Only the My Rules list feeds the reducer. The shared rows come through the row cache, which parses only rows it has not seen.
       const entries = database.prepare(`SELECT id, project, list_name, fields, created_at_epoch${originColumns.length ? `, ${originColumns.join(', ')}` : ''}
-        FROM work_state_entries WHERE list_name = ? OR list_name GLOB '__my_work_v[0-9]*:*'`).all(MY_RULES_LIST);
+        FROM work_state_entries WHERE list_name = ?`).all(MY_RULES_LIST);
       let story = null;
       let storyError = null;
       if (this.ledgerDir) {
         try { story = JSON.parse(readFileSync(join(this.ledgerDir, 'story.json'), 'utf8')); }
         catch (error) { if (error.code !== 'ENOENT') storyError = error; }
       }
-      const shared = readSharedRecords(database, { deviceId: this.localDeviceId, validateValue: isSharedProjectionValue, rows: entries });
+      const shared = readSharedRecords(database, { deviceId: this.localDeviceId, validateValue: isSharedProjectionValue });
       if (storyError && ![...shared.records.values()].some(record => record.kind === 'story' && record.key === 'current')) throw storyError;
       story = applySharedProjection(database, shared, { ledger: { story }, deviceId: this.localDeviceId }).ledger.story;
       const state = reduceWorkState(entries, { localDeviceId: this.localDeviceId });
@@ -271,6 +293,21 @@ export class WorkStateSource {
       this.titleCache = {};
     }
     this.titleCacheSignature = signature;
+  }
+
+  /** Jev's work-state labels (work-state-labels.mjs), reread when the file changes. Unreadable: no labels, and
+   * the error is kept on the source so the snapshot reports it instead of showing items as if never labeled. */
+  readWorkStateLabels() {
+    let signature = 'disabled';
+    if (this.ledgerDir) {
+      try { const stat = statSync(join(this.ledgerDir, WORK_STATE_LABELS_FILE)); signature = `${stat.mtimeMs}:${stat.size}`; }
+      catch (error) { signature = error?.code === 'ENOENT' ? 'missing' : `unreadable:${error?.code ?? 'error'}`; }
+    }
+    if (signature === this.labelsSignature) return;
+    this.labelsSignature = signature;
+    this.source.labelsError = null;
+    try { this.workStateLabels = this.ledgerDir ? readWorkStateLabels(this.ledgerDir) : null; }
+    catch (error) { this.workStateLabels = null; this.source.labelsError = String(error?.message ?? error).slice(0, 300); }
   }
 
   readLedger() {

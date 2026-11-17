@@ -10,8 +10,9 @@ import * as realHookSettings from '../../src/shared/hook-settings.js';
 const realHookSettingsSnapshot = { ...realHookSettings };
 
 // Mock loadFromFileOnce to avoid real file I/O and settings-dependent results
+let excludedProjects = '';
 mock.module('../../src/shared/hook-settings.js', () => ({
-  loadFromFileOnce: () => ({ CLAUDE_MEM_EXCLUDED_PROJECTS: '' }),
+  loadFromFileOnce: () => ({ CLAUDE_MEM_EXCLUDED_PROJECTS: excludedProjects }),
 }));
 
 afterAll(() => {
@@ -33,6 +34,7 @@ describe('shouldTrackProject — path normalization', () => {
   let savedInternal: string | undefined;
 
   beforeEach(() => {
+    excludedProjects = '';
     savedInternal = process.env.CLAUDE_MEM_INTERNAL;
     delete process.env.CLAUDE_MEM_INTERNAL;
   });
@@ -75,9 +77,35 @@ describe('shouldTrackProject — path normalization', () => {
     expect(shouldTrackProject(join(marketplacePluginDir, PLUGIN_SCRIPTS_DIR_NAME))).toBe(false);
   });
 
+  for (const [label, root] of [
+    ['observer sessions', OBSERVER_SESSIONS_DIR],
+    ['plugin cache', join(CLAUDE_CONFIG_DIR, PLUGINS_DIR_NAME, PLUGIN_CACHE_DIR_NAME, CLAUDE_MEM_PLUGIN_OWNER, CLAUDE_MEM_PLUGIN_NAME)],
+    ['marketplace runtime', join(MARKETPLACE_ROOT, PLUGIN_RUNTIME_DIR_NAME)],
+  ]) {
+    for (const name of ['..cache', '...']) {
+      it(`does not track ${label} descendants whose first component is ${name}`, () => {
+        expect(shouldTrackProject(join(root, name))).toBe(false);
+        expect(shouldTrackProject(join(root, name, 'nested'))).toBe(false);
+      });
+    }
+
+    it(`keeps a sibling of ${label} eligible for tracking`, () => {
+      expect(shouldTrackProject(join(root, '..', 'ordinary-project'))).toBe(true);
+      expect(shouldTrackProject(`${root}-sibling`)).toBe(true);
+    });
+  }
+
   it('returns true for an unrelated project path', () => {
     const unrelated = normalize('/tmp/my-project');
     expect(shouldTrackProject(unrelated)).toBe(true);
+  });
+
+  it('does not track excluded descendants whose directory names contain line terminators', () => {
+    excludedProjects = '/workspace/private/**';
+    for (const separator of ['\n', '\r', '\u2028', '\u2029']) {
+      expect(shouldTrackProject(`/workspace/private/team${separator}one/project`)).toBe(false);
+      expect(shouldTrackProject(`/workspace/public/team${separator}one/project`)).toBe(true);
+    }
   });
 
   it('returns false when CLAUDE_MEM_INTERNAL is set', () => {

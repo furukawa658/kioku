@@ -13,6 +13,7 @@ import { scratchDir } from '../helpers/scratch-dir.js';
 import { everyRequestInOther, focusInputFrom, focusWriter, isOtherPass } from '../helpers/fake-focus-writer.js';
 import { FOCUS_BATCH } from '../../src/services/work-view/request-groups.mjs';
 import { readFocus } from '../../src/services/work-view/data-source.mjs';
+import { registerSharedFileWriter } from '../../src/services/work-view/shared-file-hooks.mjs';
 
 const DAY = 86400000, NOW = 100 * DAY;
 afterEach(() => setFakeSpawn(null));
@@ -142,6 +143,33 @@ describe('automatic refresh scheduler', () => {
       expect(status).toMatchObject({ state: 'failed', reason: 'manual', error: 'The previous refresh stopped before finishing.' });
       expect(status.failures).toBeUndefined();
     } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('a locked database while repairing a cut-off run at startup is logged, never thrown, and the next check repairs it', async () => {
+    const dir = scratchDir('auto-refresh');
+    // The live failure (2026-11-11): the shared-ledger hook's transaction for refresh.json threw SQLITE_BUSY.
+    let locked = true;
+    const unregister = registerSharedFileWriter(dir, () => { if (locked) throw Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' }); return null; });
+    try {
+      writeFileSync(join(dir, 'refresh.json'), JSON.stringify({ state: 'running', pid: 2 ** 22 + 12345, reason: 'scheduled', startedAt: new Date(NOW - DAY).toISOString() }));
+      const warnings: string[] = [];
+      const worker = new AutoRefreshWorker({
+        localDeviceId: () => '', dir, openDatabase: handle(fixtureDatabase()), enabled: () => false, now: () => NOW,
+        log: (level, message) => { if (level === 'warn') warnings.push(message); },
+        runJob: async () => { throw new Error('a disabled worker must not run'); },
+      });
+      expect(() => worker.repairInterrupted()).not.toThrow();
+      expect(warnings).toEqual(['Work view refresh status could not be repaired at startup; the next check tries again']);
+      expect(worker.status()).toMatchObject({ state: 'running' });
+      // Still locked at the first check: warned again, still not thrown.
+      expect(await worker.check()).toBe('disabled');
+      expect(warnings).toHaveLength(2);
+      locked = false;
+      // Scheduled refresh is off, so this repair is the only one: My Work must not stay stuck on "running".
+      expect(await worker.check()).toBe('disabled');
+      expect(worker.status()).toMatchObject({ state: 'failed', error: 'The previous refresh stopped before finishing.' });
+      expect(warnings).toHaveLength(2);
+    } finally { unregister(); rmSync(dir, { recursive: true, force: true }); }
   });
 
   it('startup leaves alone a run another live worker owns', () => {
@@ -1004,6 +1032,71 @@ describe('incremental owner goals', () => {
         focus_areas: [{ title: 'Cards', rank: 2, matches: 'fa_cards0000001' }, { title: 'Pricing', matches: null }], asks: [{ title: 'Ship cards' }, { title: 'Pricing page', focus_area: 'Pricing' }], rules: [{ then: 'Ship daily.' }] });
       expect(calls[0].args.slice(calls[0].args.indexOf('--ledger-dir'), calls[0].args.indexOf('--ledger-dir') + 2)).toEqual(['--ledger-dir', dir]);
     } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it.each([0, 3])('reuses a rules-only snapshot with %i new prompts', async (newPrompts) => {
+    const dir = mkdtempSync(join(tmpdir(), 'auto-refresh-rules-only-'));
+    const database = fixtureDatabase();
+    try {
+      const generatedAt = new Date(NOW - 2 * DAY).toISOString();
+      const quoteAt = new Date(NOW - 3 * DAY).toISOString();
+      database.prepare('INSERT INTO work_state_entries (project, list_name, fields, created_at_epoch) VALUES (?, ?, ?, ?)')
+        .run('owner', 'owner-goals', JSON.stringify({ human_summary: 'Keep changes reviewable.', generated_at: generatedAt }), 1);
+      writeFileSync(join(dir, 'story.json'), JSON.stringify({ preferences: [
+        { preference: 'Keep changes reviewable.', when: '', kind: 'directive', supportCount: 1, source: 'owner-goals', quotes: [{ quote: 'keep changes reviewable', at: quoteAt }] },
+        { preference: 'The story\'s own preference.', quotes: [] },
+      ] }));
+      writeFileSync(join(dir, 'request-groups.json'), JSON.stringify({ version: 1, conversations: {}, groups: {}, ignored: { [key('a')]: 'not a goal' } }));
+      const calls: Array<{ args: string[]; goals?: any }> = [], sinceMinutes: Array<string | null> = [];
+      const task = buildRefreshTask({ localDeviceId: () => '', needs: { due: 0, ungrouped: 0, goalsStale: true, unplaced: 0, needed: true }, reason: 'scheduled', dataDir: dir, ledgerDir: dir, pluginRoot: PLUGIN_ROOT, openDatabase: handle(database), now: () => NOW, spawnImpl: fakePython(calls), writeOwnerPrompts: fakeOwnerPrompts(newPrompts, sinceMinutes) });
+      await task.prepare!();
+      const prompts: string[] = [];
+      const result = await task.run(async (prompt: string) => {
+        prompts.push(prompt);
+        expect(newPrompts).toBeGreaterThan(0);
+        expect(prompt).toContain('Do "Update the saved goals"');
+        expect(prompt).toContain(`${newPrompts} prompts the owner typed since`);
+        return readFileSync(/saved goals are in (.+?\.json)/.exec(prompt)![1], 'utf8');
+      }, 'codex');
+      expect(result).toBe(newPrompts ? 'goals updated.' : 'goals unchanged.');
+      expect(prompts).toHaveLength(newPrompts ? 1 : 0);
+      expect(sinceMinutes).toEqual([new Date(generatedAt).toLocaleString('sv').slice(0, 16)]);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].args.slice(-2)).toEqual(['--carried-before', sinceMinutes[0]!]);
+      expect(calls[0].goals).toMatchObject({ generated_at: new Date(NOW).toISOString(), source_prompt_count: 40, focus_areas: [], asks: [],
+        rules: [{ when: '', then: 'Keep changes reviewable.', times_asked: 1, latest_at: new Date(quoteAt).toLocaleString('sv').slice(0, 16),
+          evidence: [{ at: new Date(quoteAt).toLocaleString('sv').slice(0, 16), quote: 'keep changes reviewable' }] }] });
+      expect(calls[0].goals.rules).toHaveLength(1);
+    } finally { database.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it.each([
+    { name: 'missing save time', generatedAt: null, source: 'owner-goals' },
+    { name: 'invalid save time', generatedAt: 'not a timestamp', source: 'owner-goals' },
+    { name: 'unrelated story preferences', generatedAt: new Date(NOW - 2 * DAY).toISOString(), source: 'story' },
+    { name: 'list metadata without saved items', generatedAt: new Date(NOW - 2 * DAY).toISOString(), source: null },
+  ])('maps the full window for $name', async ({ generatedAt, source }) => {
+    const dir = mkdtempSync(join(tmpdir(), 'auto-refresh-goals-incomplete-'));
+    const database = fixtureDatabase();
+    try {
+      database.prepare('INSERT INTO work_state_entries (project, list_name, fields, created_at_epoch) VALUES (?, ?, ?, ?)')
+        .run('owner', 'owner-goals', JSON.stringify({ human_summary: 'Keep changes reviewable.', generated_at: generatedAt }), 1);
+      writeFileSync(join(dir, 'story.json'), JSON.stringify({ preferences: source ? [{ preference: 'Keep changes reviewable.', source, quotes: [] }] : [] }));
+      writeFileSync(join(dir, 'request-groups.json'), JSON.stringify({ version: 1, conversations: {}, groups: {}, ignored: { [key('a')]: 'not a goal' } }));
+      const calls: Array<{ args: string[]; goals?: any }> = [], sinceMinutes: Array<string | null> = [];
+      const task = buildRefreshTask({ localDeviceId: () => '', needs: { due: 0, ungrouped: 0, goalsStale: true, unplaced: 0, needed: true }, reason: 'scheduled', dataDir: dir, ledgerDir: dir, pluginRoot: PLUGIN_ROOT, openDatabase: handle(database), now: () => NOW, spawnImpl: fakePython(calls), writeOwnerPrompts: fakeOwnerPrompts(3, sinceMinutes) });
+      await task.prepare!();
+      let asked = 0;
+      expect(await task.run(async (prompt: string) => {
+        asked++;
+        expect(prompt).toContain('Do step 2 yourself');
+        expect(prompt).not.toContain('Do "Update the saved goals"');
+        return JSON.stringify({ map: '# Owner map', goals: { human_summary: 'Keep changes reviewable.', focus_areas: [], asks: [], rules: [{ when: '', then: 'Keep changes reviewable.' }] } });
+      }, 'codex')).toBe('goals mapped.');
+      expect(asked).toBe(1);
+      expect(sinceMinutes).toEqual([null]);
+      expect(calls[0].args).not.toContain('--carried-before');
+    } finally { database.close(); rmSync(dir, { recursive: true, force: true }); }
   });
 
   it('the goals question keeps the skill\'s own language rule even when CLAUDE_MEM_WORK_VIEW_TEXT_LANGUAGE is set', async () => {

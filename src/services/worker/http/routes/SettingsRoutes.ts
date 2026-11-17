@@ -21,6 +21,7 @@ import { parseProviderBySource } from '../../../../shared/provider-by-source.js'
 import { CODEX_REASONING_EFFORTS, isCodexReasoningEffort } from '../../CodexProvider.js';
 import { emitContextInvalidation, noteUserSettingsSaved } from '../../../../shared/context-invalidation.js';
 import { WORK_VIEW_AGENT_CHOICES } from '../../../work-view/refresh-task.js';
+import { CORPUS_AGENT_CHOICES } from '../../knowledge/CorpusAgent.js';
 
 const toggleMcpSchema = z.object({
   enabled: z.boolean(),
@@ -49,6 +50,7 @@ const SECRET_SETTING_KEYS = new Set([
   'CLAUDE_MEM_SERVER_API_KEY',
   'CLAUDE_MEM_SERVER_BETA_API_KEY',
   'CLAUDE_MEM_TV_TOKEN',
+  'CLAUDE_MEM_LOCAL_API_TOKEN',
   'CLAUDE_MEM_WORKER_INGEST_TOKEN',
   'CLAUDE_MEM_PRO_MEMORY_KEY',
   'CLAUDE_MEM_REDIS_URL',
@@ -139,6 +141,9 @@ function withoutEnvironmentEchoes(posted: Record<string, unknown>, settingsPath:
 // runs at all. Provider endpoints also choose where stored credentials and
 // prompt content go; the compatible preset supplies that destination when
 // its explicit base URL is empty, so it has the same boundary.
+// CLAUDE_MEM_LOCAL_API_TOKEN is the credential the local-api-token mode checks; a
+// caller that could rewrite or clear it over HTTP would hold the key to the
+// door it is meant to guard.
 export const FILE_ONLY_SETTING_KEYS = new Set([
   'CLAUDE_CODE_PATH',
   'CLAUDE_MEM_CODEX_PATH',
@@ -150,6 +155,7 @@ export const FILE_ONLY_SETTING_KEYS = new Set([
   'CLAUDE_MEM_OPENROUTER_BASE_URL',
   'CLAUDE_MEM_OPENAI_COMPAT_BASE_URL',
   'CLAUDE_MEM_OPENAI_COMPAT_PRESET',
+  'CLAUDE_MEM_LOCAL_API_TOKEN',
 ]);
 
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
@@ -338,6 +344,7 @@ export class SettingsRoutes extends BaseRouteHandler {
       'CLAUDE_MEM_WORK_VIEW_CODEX_MODEL',
       'CLAUDE_MEM_WORK_VIEW_GEMINI_MODEL',
       'CLAUDE_MEM_WORK_VIEW_API_MODEL',
+      'CLAUDE_MEM_CORPUS_AGENT',
       'CLAUDE_MEM_LOG_LEVEL',
       'CLAUDE_MEM_PYTHON_VERSION',
       'CLAUDE_MEM_CLAUDE_CONFIG_DIR',
@@ -648,6 +655,10 @@ export class SettingsRoutes extends BaseRouteHandler {
     if (settings.CLAUDE_MEM_WORK_VIEW_AGENT !== undefined
       && !(WORK_VIEW_AGENT_CHOICES as readonly string[]).includes(settings.CLAUDE_MEM_WORK_VIEW_AGENT)) {
       return { valid: false, error: 'CLAUDE_MEM_WORK_VIEW_AGENT must be empty (follow CLAUDE_MEM_PROVIDER), "claude-code", "codex", "gemini", "api", "off", or "all"' };
+    }
+    if (settings.CLAUDE_MEM_CORPUS_AGENT !== undefined
+      && !(CORPUS_AGENT_CHOICES as readonly string[]).includes(settings.CLAUDE_MEM_CORPUS_AGENT)) {
+      return { valid: false, error: `CLAUDE_MEM_CORPUS_AGENT must be empty (Claude Agent SDK) or ${CORPUS_AGENT_CHOICES.filter(Boolean).map(choice => JSON.stringify(choice)).join(', ')} (the selected openrouter / openai-compatible provider)` };
     }
     if (settings.CLAUDE_MEM_WORK_VIEW_COPY_PROVIDER !== undefined
       && !['', 'openrouter', 'openai-compatible', 'off'].includes(settings.CLAUDE_MEM_WORK_VIEW_COPY_PROVIDER)) {

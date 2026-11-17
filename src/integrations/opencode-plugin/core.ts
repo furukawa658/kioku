@@ -16,7 +16,8 @@ import { formatWorkerMcpResponse } from '../../servers/mcp-text-format.js';
 import { parseSearchResponse } from "./contract.js";
 import { normalizePlatformSource } from "../../shared/platform-source.js";
 import { isConnectionRefusedError } from "../../shared/connection-errors.js";
-import { formatHostForUrl } from "../../shared/worker-url.js";
+import { formatHostForUrl, isLoopbackHostname } from "../../shared/worker-url.js";
+import { normalizeLocalApiToken, localApiTokenHeaders } from "../../shared/local-api-token.js";
 import { stripMemoryTags } from "../../utils/tag-stripping.js";
 import { deliverLiveObserverHandoff } from "../../shared/live-observer-handoff.js";
 
@@ -94,7 +95,18 @@ const CAPTURE_TOOL_NAMES = new Map([
   ["bash", "Bash"],
 ]);
 
-const JSON_HEADERS: Record<string, string> = { "Content-Type": "application/json" };
+// Local API token mode (#5141): the worker refuses a request without the token. Read once, like the
+// worker URL, and only for the loopback worker this plugin talks to: another host is not ours to
+// hand the token to. The token comes from settings.json alone, as the worker reads it, so the
+// environment cannot change what is sent.
+function localApiHeaders(): Record<string, string> {
+  if (!isLoopbackHostname(new URL(WORKER_BASE_URL).hostname)) return {};
+  const settingsPath = join(SettingsDefaultsManager.get("CLAUDE_MEM_DATA_DIR"), "settings.json");
+  const settings = SettingsDefaultsManager.loadFromFile(settingsPath, false, { readOnly: true });
+  return localApiTokenHeaders(normalizeLocalApiToken(settings.CLAUDE_MEM_LOCAL_API_TOKEN));
+}
+
+const JSON_HEADERS: Record<string, string> = { "Content-Type": "application/json", ...localApiHeaders() };
 
 // Every worker request is bounded, so a hung worker can neither hold a hook
 // open nor pile up pending requests inside OpenCode's process (plan-23 step 2).
@@ -279,10 +291,13 @@ export interface ClaudeMemCore {
    */
   captureTool(input: {
     tool: string;
+    /** Actual host name when an adapter changes more than its case. */
+    nativeToolName?: string;
     sessionID: string;
     toolUseId?: string;
     args?: Record<string, unknown>;
     output: string;
+    failed?: boolean;
   }): Promise<void>;
   /** Capture a real user prompt with session init. */
   captureUserPrompt(sessionID: string, promptText: string): Promise<void>;
@@ -359,7 +374,7 @@ export function createCore(ctx: CoreContext): ClaudeMemCore {
   }
 
   return {
-    async captureTool({ tool, sessionID, toolUseId, args, output }) {
+    async captureTool({ tool, nativeToolName, sessionID, toolUseId, args, output, failed }) {
       const telemetryToolEpochMs = Date.now();
       const contentSessionId = resolveContentSessionId(sessionID);
       // apply_patch carries its patch as `patchText`, and the worker's file
@@ -373,11 +388,14 @@ export function createCore(ctx: CoreContext): ClaudeMemCore {
       await workerPost("/api/sessions/observations", {
         contentSessionId,
         tool_name: CAPTURE_TOOL_NAMES.get(tool) ?? tool,
+        ...(nativeToolName ? { native_tool_name: nativeToolName } : {}),
         // Reading output.args instead shipped an empty tool_input for every
         // observation, and the compressor dismissed them all — the "loads but
         // captures nothing" symptom of #3678.
         tool_input: toolInput,
-        tool_response: truncate(output || ""),
+        tool_response: failed
+          ? { is_error: true, error: truncate(output || "") }
+          : truncate(output || ""),
         cwd: ctx.directory,
         platform_source: PLATFORM_SOURCE,
         telemetryToolEpochMs,

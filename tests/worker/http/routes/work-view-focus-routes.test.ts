@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Database } from 'bun:sqlite';
+import { createHash } from 'node:crypto';
 import express from 'express';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { WorkViewRoutes } from '../../../../src/services/worker/http/routes/WorkViewRoutes.js';
+import { focusChangeVersion } from '../../../../src/shared/focus-change-version.js';
+import { toWorkModel } from '../../../../src/ui/my-work/src/live/to-work-model.ts';
 import { focusAreaRowFields, placementRowFields } from '../../../../src/services/work-view/my-focus.mjs';
 import { SessionStore } from '../../../../src/services/sqlite/SessionStore.js';
 import { SyncApply, type SyncOp } from '../../../../src/services/sync/SyncApply.js';
@@ -91,6 +94,68 @@ const ownerRows = () => (source.prepare("SELECT project, fields FROM work_state_
   .map(row => ({ project: row.project, fields: JSON.parse(row.fields) }));
 
 describe('My Focus routes', () => {
+  it('accepts a matching Undo version and ignores unrelated focus activity', async () => {
+    const undo = { action: 'rename', focusAreaId: 'fa_viewer', name: 'Viewer' };
+    const saved = await (await saveFocus({ ...undo, name: 'Saved name' })).json();
+    const shown = toWorkModel(saved, Date.now());
+    const expectedVersion = focusChangeVersion(undo, shown.focusAreas, shown.requests);
+    await saveFocus({ action: 'done', focusAreaId: 'fa_community' });
+    const response = await saveFocus({ ...undo, expectedVersion });
+    expect(response.status).toBe(200);
+    const view = await response.json();
+    expect(areaById(view, 'fa_viewer').name).toBe('Viewer');
+    expect(areaById(view, 'fa_community').status).toBe('done');
+  });
+
+  it.each([
+    { name: 'area', saved: { action: 'rename', focusAreaId: 'fa_viewer', name: 'Saved name' },
+      undo: { action: 'rename', focusAreaId: 'fa_viewer', name: 'Viewer' },
+      newer: { action: 'rename', focusAreaId: 'fa_viewer', name: 'Newer decision' },
+      kept: (view: any) => areaById(view, 'fa_viewer').name === 'Newer decision' },
+    { name: 'request placement', saved: { action: 'move-request', requestId: REQUEST_ID, focusAreaId: 'fa_endless' },
+      undo: { action: 'move-request', requestId: REQUEST_ID, focusAreaId: 'other' },
+      newer: { action: 'move-request', requestId: REQUEST_ID, focusAreaId: 'fa_community' },
+      kept: (view: any) => request(view).focusAreaId === 'fa_community' },
+    { name: 'order', saved: { action: 'reorder', focusAreaIds: ['fa_community', 'fa_viewer', 'fa_endless'] },
+      undo: { action: 'reorder', focusAreaIds: ['fa_viewer', 'fa_endless', 'fa_community'] },
+      newer: { action: 'reorder', focusAreaIds: ['fa_endless', 'fa_community', 'fa_viewer'] },
+      kept: (view: any) => view.focusAreas.filter((area: any) => area.status === 'kept').map((area: any) => area.focusAreaId).join(',') === 'fa_endless,fa_community,fa_viewer' },
+  ])('checks an Undo $name version after the preceding write finishes', async ({ saved, undo, newer, kept }) => {
+    for (const id of ['fa_viewer', 'fa_endless', 'fa_community']) await saveFocus({ action: 'keep', focusAreaId: id });
+    const receipt = await (await saveFocus(saved)).json();
+    const shown = toWorkModel(receipt, Date.now());
+    const expectedVersion = focusChangeVersion(undo, shown.focusAreas, shown.requests);
+    const reader = (routes as any).sourceReader;
+    const realRead = reader.read.bind(reader);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let reading!: () => void;
+    const started = new Promise<void>(resolve => { reading = resolve; });
+    reader.read = (...args: [number, string]) => {
+      reader.read = realRead;
+      reading();
+      return realRead(...args).then(async (view: unknown) => { await gate; return view; });
+    };
+    const before = ownerRows().length;
+    const changing = saveFocus(newer);
+    try {
+      await started;
+      const fence = (routes as any).ownerReadFence;
+      const undoing = saveFocus({ ...undo, expectedVersion });
+      // The Undo must reach the edit queue while the preceding write is still held.
+      while ((routes as any).ownerReadFence === fence) await Bun.sleep(1);
+      release();
+      expect((await changing).status).toBe(200);
+      const refused = await undoing;
+      expect(refused.status).toBe(409);
+      const answer = await refused.json();
+      expect(answer.error).toMatch(/changed since your edit/);
+      expect(kept(answer.snapshot)).toBe(true);
+      expect(kept(await snapshot())).toBe(true);
+      expect(ownerRows().length - before).toBe(newer.action === 'reorder' ? 3 : 1);
+    } finally { release(); await changing; }
+  });
+
   it('a read already running before an edit never answers that edit', async () => {
     const reader = (routes as any).sourceReader;
     const realRead = reader.read.bind(reader);
@@ -573,5 +638,91 @@ describe('My Focus seed route', () => {
     expect(request(view).focusAreaId).toBe(created);
     // Nothing the seed route wrote is an owner row.
     expect(ownerRows().filter(row => row.fields.decided_by === 'owner' || row.fields.placed_by === 'owner')).toEqual([]);
+  });
+});
+
+
+describe('checked owner-goals save keys', () => {
+  const mined = (name: string, rank: number) => ({ name, goal: 'Keep this work reliable.', rank, matches: null, evidence: 'From checked owner prompts.' });
+  // An independent client encodes the documented tuple, including UTF-8 strings, before POSTing.
+  const keyFor = (areas: any[], nonce = '0'.repeat(24)) => nonce + ':' + createHash('sha256')
+    .update(JSON.stringify(areas.map(area => [area.name.trim(), area.goal.trim(), area.rank, area.matches?.trim() ?? null, area.evidence.trim()]))).digest('hex');
+  const post = (areas: any[], save_key: string) => fetch(origin + '/api/work-view/focus/owner-goals', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ areas, save_key }),
+  });
+  const count = () => (source.prepare("SELECT COUNT(*) AS count FROM work_state_entries WHERE list_name = 'my-focus'").get() as { count: number }).count;
+
+  for (const failAfter of [1, 2]) {
+    it('recovers after appending ' + failAfter + ' of two focus areas and losing the response', async () => {
+      const areas = [mined('Releases', 1), mined('Reliability', 2)], key = keyFor(areas);
+      const append = (routes as any).appendWorkStateEntry;
+      let writes = 0;
+      (routes as any).appendWorkStateEntry = (entry: unknown) => {
+        append(entry);
+        if (++writes === failAfter) throw new Error('simulated interrupted append');
+      };
+      expect((await post(areas, key)).status).toBe(500);
+      (routes as any).appendWorkStateEntry = append;
+      const partial = (await snapshot()).focusAreas.filter((area: any) => area.source === 'owner-goals');
+      expect(partial).toHaveLength(failAfter);
+      const response = await post(areas, key);
+      expect(response.status).toBe(200);
+      const ids = (await response.json()).focusAreaIds;
+      expect(new Set(ids).size).toBe(2);
+      for (const area of partial) expect(ids).toContain(area.focusAreaId);
+      expect((await snapshot()).focusAreas.filter((area: any) => area.source === 'owner-goals')).toHaveLength(2);
+      const after = count();
+      expect((await (await post(areas, key)).json()).focusAreaIds).toEqual(ids);
+      expect(count()).toBe(after);
+    });
+  }
+
+  it('rejects the same complete key with different content before writing, including reordered payloads', async () => {
+    const areas = [mined('İstanbul "quoted" \\ 🚀', 1), { ...mined('Releases', 2), goal: 'Keep releases\nsafe.' }];
+    const key = keyFor(areas);
+    expect((await post(areas, key)).status).toBe(200);
+    const after = count();
+    expect((await post([{ ...areas[0], goal: 'Different content.' }, areas[1]], key)).status).toBe(400);
+    expect((await post([...areas].reverse(), key)).status).toBe(400);
+    expect((await post(areas, 'invalid')).status).toBe(400);
+    expect(count()).toBe(after);
+    // Object property order is not part of the commitment, but tuple values are.
+    const reordered = areas.map(area => ({ evidence: area.evidence, matches: area.matches, rank: area.rank, goal: area.goal, name: area.name }));
+    expect((await post(reordered, key)).status).toBe(200);
+    expect(count()).toBe(after);
+  });
+
+  it('keeps owner renames, dismissal and merges when the original save is retried', async () => {
+    const areas = [mined('Releases', 1), mined('Reliability', 2)], key = keyFor(areas);
+    const ids = (await (await post(areas, key)).json()).focusAreaIds;
+    await saveFocus({ action: 'rename', focusAreaId: ids[0], name: 'Owner release area' });
+    await saveFocus({ action: 'dismiss', focusAreaId: ids[0] });
+    await saveFocus({ action: 'merge', focusAreaId: ids[1], intoFocusAreaId: 'fa_viewer' });
+    const after = count();
+    expect((await (await post(areas, key)).json()).focusAreaIds).toEqual(ids);
+    const view = await snapshot();
+    expect(areaById(view, ids[0])).toMatchObject({ name: 'Owner release area', status: 'dismissed', decidedBy: 'owner' });
+    expect(areaById(view, ids[1])).toMatchObject({ mergedInto: 'fa_viewer', decidedBy: 'owner' });
+    expect(count()).toBe(after);
+  });
+
+  it('refuses an already withdrawn generated id instead of resurrecting it', async () => {
+    const areas = [mined('Releases', 1)], key = keyFor(areas);
+    const [id] = (await (await post(areas, key)).json()).focusAreaIds;
+    const area = areaById(await snapshot(), id);
+    insertRow(focusAreaRowFields({ ...area, status: 'dismissed', decidedBy: 'system' }), { at: Date.now() + 60_000 });
+    const after = count();
+    expect((await post(areas, key)).status).toBe(400);
+    expect(count()).toBe(after);
+    expect(areaById(await snapshot(), id)).toMatchObject({ status: 'dismissed', decidedBy: 'system' });
+  });
+
+  it('does not share derived ids between different worker device scopes', async () => {
+    const areas = [mined('Releases', 1)], key = keyFor(areas);
+    (routes as any).getLocalDeviceId = () => 'device-a';
+    const first = (await (await post(areas, key)).json()).focusAreaIds;
+    (routes as any).getLocalDeviceId = () => 'device-b';
+    const second = (await (await post(areas, key)).json()).focusAreaIds;
+    expect(second).not.toEqual(first);
   });
 });

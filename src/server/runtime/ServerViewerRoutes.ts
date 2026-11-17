@@ -29,6 +29,7 @@ import type { RouteHandler } from '../../services/server/Server.js';
 import type { PostgresPool } from '../../storage/postgres/pool.js';
 import { requirePostgresServerAuth } from '../middleware/postgres-auth.js';
 import { getPackageRoot } from '../../shared/paths.js';
+import { LISTING_OFFSET_CAP_MESSAGE, MAX_LISTING_OFFSET, capListingPage } from '../../shared/listing-offset-cap.js';
 import { logger } from '../../utils/logger.js';
 
 const VIEWER_HTML_CANDIDATE_PATHS: readonly string[] = (() => {
@@ -67,8 +68,6 @@ if (resolvedViewerHtmlPath) {
 const FEED_PAGE_SIZE = 50;
 const SESSION_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE = 100;
-// Deep pagination stops here, matching the /v1 jobs listing's offset cap.
-const MAX_FEED_OFFSET = 10_000;
 // Reverse proxies end an upstream response that stays silent past their read
 // timeout; nginx's proxy_read_timeout defaults to 60 s. A comment every 15 s
 // keeps the stream open through that with three missed keepalives to spare.
@@ -80,9 +79,22 @@ export const STREAM_KEEPALIVE_MS = 15_000;
 const OBSERVATION_PROJECT_LABEL =
   "COALESCE(NULLIF(o.metadata->>'project', ''), NULLIF(s.metadata->>'project', ''), p.name)";
 const SESSION_PROJECT_LABEL = "COALESCE(NULLIF(s.metadata->>'project', ''), p.name)";
-// Rows without a session (manual memories, imports) have no adapter; the
-// viewer's default source is 'claude'.
 const PLATFORM_SOURCE = "COALESCE(NULLIF(s.platform_source, ''), 'claude')";
+// Rows without a session have no adapter of their own. Canonical event ingest
+// accepts events without a session, and their generated memories still carry
+// the captured platform through observation_sources. Direct memory writes keep
+// the platform they were given in metadata. A linked session stays
+// authoritative; unlabelled rows keep the viewer's default 'claude'.
+const OBSERVATION_PLATFORM_SOURCE = `COALESCE(NULLIF(s.platform_source, ''), (
+  SELECT e.platform_source
+    FROM observation_sources source
+    JOIN agent_events e ON e.id = source.agent_event_id
+   WHERE o.server_session_id IS NULL AND source.observation_id = o.id
+     AND e.project_id = o.project_id AND e.team_id = o.team_id
+     AND NULLIF(e.platform_source, '') IS NOT NULL
+   ORDER BY source.created_at, source.id
+   LIMIT 1
+), CASE WHEN o.server_session_id IS NULL THEN NULLIF(o.metadata->>'platformSource', '') END, 'claude')`;
 
 export interface ServerViewerRoutesOptions {
   /** Without a pool only the static viewer is mounted. */
@@ -299,7 +311,7 @@ export interface Page {
 }
 
 /** Reads `limit`/`offset`, or answers 400 and returns null when `limit` is outside 1..MAX_PAGE_SIZE
- * or `offset` exceeds MAX_FEED_OFFSET. Exported for unit tests. */
+ * or `offset` exceeds MAX_LISTING_OFFSET. Exported for unit tests. */
 export function parsePage(req: Request, res: Response, defaultLimit: number): Page | null {
   const limit = req.query.limit === undefined ? defaultLimit : parseNonNegativeInt(req.query.limit);
   if (limit === null || limit < 1 || limit > MAX_PAGE_SIZE) {
@@ -307,14 +319,10 @@ export function parsePage(req: Request, res: Response, defaultLimit: number): Pa
     return null;
   }
   const offset = parseNonNegativeInt(req.query.offset) ?? 0;
-  // Same bound the /v1 jobs listing enforces (JOB_LIST_MAX_OFFSET): OFFSET is
-  // parameterized, so a runaway value is not injection — it is one request
-  // driving an arbitrarily deep Postgres skip-scan.
-  if (offset > MAX_FEED_OFFSET) {
-    res.status(400).json({
-      error: 'BadRequest',
-      message: `offset must be at most ${MAX_FEED_OFFSET}; narrow the listing with filters to reach older rows`,
-    });
+  // The shared listing bound (MAX_LISTING_OFFSET): one request must not drive
+  // an arbitrarily deep Postgres skip-scan.
+  if (offset > MAX_LISTING_OFFSET) {
+    res.status(400).json({ error: 'BadRequest', message: LISTING_OFFSET_CAP_MESSAGE });
     return null;
   }
   return { limit, offset };
@@ -336,25 +344,9 @@ function toPage<Row, Item>(rows: Row[], limit: number, map: (row: Row) => Item):
   return { items: rows.slice(0, limit).map(map), hasMore: rows.length > limit };
 }
 
-interface FeedPage<Item> {
-  items: Item[];
-  hasMore: boolean;
-  offsetCapReached?: true;
-  maxOffset?: number;
-}
-
-/**
- * toPage, but a full page whose next offset would pass MAX_FEED_OFFSET says
- * so (`offsetCapReached`) instead of `hasMore`: parsePage rejects that next
- * request, so a viewer that kept paging would end on an error it cannot
- * retry. Exported for unit tests.
- */
-export function toFeedPage<Row, Item>(rows: Row[], page: Page, map: (row: Row) => Item): FeedPage<Item> {
-  const result = toPage(rows, page.limit, map);
-  if (result.hasMore && page.offset + page.limit > MAX_FEED_OFFSET) {
-    return { items: result.items, hasMore: false, offsetCapReached: true, maxOffset: MAX_FEED_OFFSET };
-  }
-  return result;
+/** toPage with the shared offset cap applied (capListingPage). Exported for unit tests. */
+export function toFeedPage<Row, Item>(rows: Row[], page: Page, map: (row: Row) => Item) {
+  return capListingPage(toPage(rows, page.limit, map), page.offset, page.limit);
 }
 
 function scopeClause(scope: ViewerScope, params: SqlParams, alias: string): string {
@@ -372,7 +364,7 @@ async function fetchProjectCatalog(
   const sessionScope = scopeClause(scope, params, 's');
   const result = await pool.query<{ platform_source: string; project: string; last_seen: Date }>(
     `SELECT platform_source, project, max(last_seen) AS last_seen FROM (
-       SELECT ${PLATFORM_SOURCE} AS platform_source, ${OBSERVATION_PROJECT_LABEL} AS project, max(o.created_at) AS last_seen
+       SELECT ${OBSERVATION_PLATFORM_SOURCE} AS platform_source, ${OBSERVATION_PROJECT_LABEL} AS project, max(o.created_at) AS last_seen
          FROM observations o
          JOIN projects p ON p.id = o.project_id
          LEFT JOIN server_sessions s ON s.id = o.server_session_id
@@ -442,7 +434,7 @@ async function queryFeed(
   const project = queryString(req, 'project');
   if (project) where += ` AND ${OBSERVATION_PROJECT_LABEL} = ${params.add(project)}`;
   const platformSource = queryString(req, 'platformSource');
-  if (platformSource) where += ` AND ${PLATFORM_SOURCE} = ${params.add(platformSource)}`;
+  if (platformSource) where += ` AND ${OBSERVATION_PLATFORM_SOURCE} = ${params.add(platformSource)}`;
   const contentSessionId = queryString(req, 'contentSessionId');
   if (contentSessionId) {
     const id = params.add(contentSessionId);
@@ -451,7 +443,7 @@ async function queryFeed(
 
   const result = await pool.query<FeedRow>(
     `SELECT o.id, o.server_session_id, s.content_session_id,
-            ${OBSERVATION_PROJECT_LABEL} AS project, ${PLATFORM_SOURCE} AS platform_source,
+            ${OBSERVATION_PROJECT_LABEL} AS project, ${OBSERVATION_PLATFORM_SOURCE} AS platform_source,
             o.kind, o.content, o.metadata, o.created_at
        FROM observations o
        JOIN projects p ON p.id = o.project_id
@@ -546,6 +538,8 @@ function toViewerObservation(row: FeedRow) {
 
 function toViewerSummary(row: FeedRow) {
   const meta = metadataOf(row);
+  const hasStructuredContent = ['request', 'investigated', 'learned', 'completed', 'next_steps', 'notes']
+    .some(field => stringOrNull(meta[field]) !== null);
   return {
     id: row.id,
     session_id: row.server_session_id ?? '',
@@ -557,7 +551,9 @@ function toViewerSummary(row: FeedRow) {
     learned: stringOrNull(meta.learned) ?? undefined,
     completed: stringOrNull(meta.completed) ?? undefined,
     next_steps: stringOrNull(meta.next_steps) ?? undefined,
-    notes: stringOrNull(meta.notes),
+    // Salvaged observation-shaped replies keep their body in content and have
+    // no summary fields. Expose that body instead of rendering an empty card.
+    notes: stringOrNull(meta.notes) ?? (hasStructuredContent ? null : stringOrNull(row.content)),
     created_at_epoch: new Date(row.created_at).getTime(),
   };
 }

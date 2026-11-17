@@ -6,7 +6,7 @@ import { retainTextHeadTail } from '../shared/text-truncation.js';
 
 export type McpTextPurpose = 'save' | 'observation-add' | 'event' | 'search' | 'server-search' | 'server-timeline' | 'context' | 'job'
   | 'observations' | 'tool-uses' | 'corpus-list' | 'corpus-build' | 'corpus-prime' | 'corpus-query';
-export type McpTextResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
+export type McpTextResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean; _meta?: Record<string, unknown> };
 const MAX_TEXT_BYTES = 32 * 1024;
 // get_observations is step 3 of the mem-search workflow: the caller already
 // filtered the IDs, so every requested record is returned.
@@ -17,9 +17,8 @@ const line = (value: unknown, fallback = '', maximum = 240): string => {
   const text = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : fallback;
   return retainTextHeadTail(text.replace(/[\r\n\u0000-\u001f\u007f]/g, ' '), maximum, 0).head;
 };
-function bounded(text: string, maximum = MAX_TEXT_BYTES): string {
+function bounded(text: string, maximum = MAX_TEXT_BYTES, suffix = '\n[Response shortened; request fewer selected records for more detail.]'): string {
   if (Buffer.byteLength(text, 'utf8') <= maximum) return text;
-  const suffix = '\n[Response shortened; request fewer selected records for more detail.]';
   let result = '', bytes = 0;
   for (const char of text) {
     const size = Buffer.byteLength(char, 'utf8');
@@ -30,6 +29,14 @@ function bounded(text: string, maximum = MAX_TEXT_BYTES): string {
 }
 export function mcpTextResult(text: string, isError = false, maximumBytes = MAX_TEXT_BYTES): McpTextResult {
   return { content: [{ type: 'text', text: bounded(text, maximumBytes) }], ...(isError ? { isError: true } : {}) };
+}
+
+export function formatWorkStateMcpResponse(text: string): McpTextResult {
+  return {
+    content: [{ type: 'text', text: bounded(text, MAX_TEXT_BYTES,
+      '\n[Work state shortened. Export the complete ordered history with GET /api/work-state/export on the worker port (CLAUDE_MEM_WORKER_PORT in ~/.claude-mem/settings.json), using the same cwd and optional list; closed items are included.]') }],
+    _meta: { 'claude-mem/truncated': Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES },
+  };
 }
 function parseStored(value: unknown): unknown {
   if (typeof value !== 'string' || !/^[\s]*[\[{]/.test(value)) return value;
@@ -205,7 +212,32 @@ export function formatMcpPayload(purpose: McpTextPurpose, payload: unknown): Mcp
     }
     case 'corpus-build': text = `Corpus ready.\n${corpusSummary(data)}\nUse prime_corpus before querying.`; break;
     case 'corpus-prime': text = `Corpus ${line(data.name, 'requested corpus')} primed. Use query_corpus to ask a question.`; break;
-    case 'corpus-query': text = `Corpus answer:\n\n${typeof data.answer === 'string' ? data.answer : 'No answer returned.'}`; break;
+    case 'corpus-query': {
+      const answer = typeof data.answer === 'string' ? data.answer : 'No answer returned.';
+      // The API corpus agent answers from an excerpt; say so when matches were left out.
+      // The notices go before the answer: mcpTextResult keeps only the first 32 KiB,
+      // so a long answer would cut off notices placed after it.
+      // A count is a number or it is absent: Number(null) would read as a count of 0.
+      const count = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : NaN);
+      const sent = count(data.observations_sent);
+      const matching = count(data.observations_matching);
+      const inCorpus = count(data.observations_in_corpus);
+      const truncated = count(data.observations_truncated);
+      const notices = [
+        Number.isFinite(sent) && Number.isFinite(matching) && sent < matching
+          ? `Partial excerpt: the answer saw ${sent} of the ${matching} observations that match the question.`
+          : '',
+        // Nothing matched: the excerpt is the most recent observations, not a selection.
+        Number.isFinite(sent) && matching === 0 && Number.isFinite(inCorpus) && sent < inCorpus
+          ? `Partial excerpt: no observation matches the question, so the answer saw only the ${sent} most recent of the ${inCorpus} in the corpus.`
+          : '',
+        Number.isFinite(truncated) && truncated > 0
+          ? `Cut: the text of ${truncated} ${truncated === 1 ? 'observation' : 'observations'} the answer saw was shortened to fit the excerpt budget.`
+          : '',
+      ].filter(Boolean);
+      text = `Corpus answer:\n\n${notices.length ? `${notices.join('\n')}\n\n` : ''}${answer}`;
+      break;
+    }
   }
   return mcpTextResult(text);
 }

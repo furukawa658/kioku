@@ -79,6 +79,13 @@
         ]
       },
       {
+        "group": "Gemini CLI Integration",
+        "icon": "terminal",
+        "pages": [
+          "gemini-cli/setup"
+        ]
+      },
+      {
         "group": "Best Practices",
         "icon": "lightbulb",
         "pages": [
@@ -101,13 +108,41 @@
           "development",
           "troubleshooting",
           "platform-integration",
+          "contextforge",
           "openclaw-integration",
           "hermes-integration",
           "kimi-integration",
           "devin-integration",
           "qoder-integration",
           "screenpipe-integration",
-          "notion-export"
+          "eve-integration",
+          "notion-export",
+          "obsidian"
+        ]
+      },
+      {
+        "group": "Agent Frameworks",
+        "icon": "robot",
+        "pages": [
+          "ag2-integration",
+          "agno-integration",
+          "autogen-integration",
+          "claude-agent-sdk",
+          "crewai-integration",
+          "elizaos",
+          "google-adk-integration",
+          "haystack",
+          "langgraph-integration",
+          "llamaindex-integration",
+          "microsoft-agent-framework",
+          "n8n",
+          "openai-agents-integration",
+          "pipecat",
+          "pydantic-ai-integration",
+          "smolagents-integration",
+          "strands-agents-integration",
+          "vercel-ai-sdk",
+          "vercel-chat"
         ]
       },
       {
