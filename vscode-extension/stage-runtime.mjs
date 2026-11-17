@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { cp, mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
+import { chmod, cp, mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -9,12 +9,16 @@ import { stageSemantic, download } from './stage-semantic.mjs';
 const extension = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.dirname(extension);
 const runtime = path.join(extension, 'runtime');
-if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('Build on Windows x64.');
+const supported = ['win32-x64', 'darwin-x64', 'darwin-arm64', 'linux-x64', 'linux-arm64'];
+if (!supported.includes(`${process.platform}-${process.arch}`)) throw new Error(`Unsupported build host: ${process.platform}-${process.arch}. Build on one of ${supported.join(', ')}.`);
+const windows = process.platform === 'win32';
 await mkdir(path.join(runtime, 'scripts'), { recursive: true });
 await mkdir(path.join(runtime, 'licenses'), { recursive: true });
-const bun = process.env.KIOKU_BUN_EXE || execFileSync('where.exe', ['bun.exe'], { encoding: 'utf8' }).trim().split(/\r?\n/)[0];
+// Bunはネイティブバイナリのため、ビルドしたOSと同じ実行環境向けのVSIXになる
+const bun = process.env.KIOKU_BUN_EXE || execFileSync(windows ? 'where.exe' : 'which', [windows ? 'bun.exe' : 'bun'], { encoding: 'utf8' }).trim().split(/\r?\n/)[0];
 const bunVersion = execFileSync(bun, ['--version'], { encoding: 'utf8' }).trim();
-await cp(bun, path.join(runtime, 'bun.exe'));
+await cp(bun, path.join(runtime, windows ? 'bun.exe' : 'bun'));
+if (!windows) await chmod(path.join(runtime, 'bun'), 0o755);
 const manifest = JSON.parse(await readFile(path.join(repo, 'package.json'), 'utf8'));
 await writeFile(path.join(runtime, 'package.json'), JSON.stringify({ name: 'kioku-bundled-runtime', version: manifest.version, private: true }));
 await cp(path.join(repo, 'plugin', 'modes'), path.join(runtime, 'modes'), { recursive: true });

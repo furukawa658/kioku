@@ -12,6 +12,10 @@ function runtimeOptions(extensionPath, configured = '', env = process.env) {
   }
   const root = path.join(extensionPath, 'runtime');
   const worker = path.join(root, 'scripts', 'worker-service.cjs');
+  if (process.platform !== 'win32') {
+    // VSIX展開時に実行ビットが失われていても起動できるようにする
+    try { fs.chmodSync(path.join(root, 'bun'), 0o755); } catch { /* 不在は後続の存在確認で報告する */ }
+  }
   const overrides = {
       CLAUDE_MEM_DATA_DIR: dataDir,
       CLAUDE_MEM_RUNTIME: 'worker',
@@ -39,7 +43,7 @@ function runtimeOptions(extensionPath, configured = '', env = process.env) {
       CLAUDE_MEM_TELEMETRY_ENABLED: 'false'
   };
   return {
-    root, dataDir, url: url.origin, command: path.join(root, 'bun.exe'), requireLocalVectors: true,
+    root, dataDir, url: url.origin, command: path.join(root, process.platform === 'win32' ? 'bun.exe' : 'bun'), requireLocalVectors: true,
     worker, mcp: path.join(root, 'scripts', 'mcp-server.cjs'),
     version: JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version,
     overrides, env: { ...env, ...overrides }

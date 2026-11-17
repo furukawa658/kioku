@@ -22,7 +22,7 @@ process.env.CLAUDE_MEM_DATA_DIR = dataDir;
 const { runtimeOptions, ensureRuntime } = require(path.join(extension, 'runtime.cjs'));
 const options = runtimeOptions(extension, `http://127.0.0.1:${port}`);
 Object.assign(options.env, {
-  PATH: path.join(process.env.SystemRoot, 'System32'),
+  PATH: process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32') : '/usr/bin:/bin',
   HOME: isolated, USERPROFILE: isolated, APPDATA: isolated, LOCALAPPDATA: isolated,
   CLAUDE_CONFIG_DIR: path.join(isolated, 'claude')
 });

@@ -1,0 +1,42 @@
+name: Package VSIX
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['vsix-v*']
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: win32-x64 }
+          - { os: macos-13, target: darwin-x64 }
+          - { os: macos-latest, target: darwin-arm64 }
+          - { os: ubuntu-latest, target: linux-x64 }
+          - { os: ubuntu-24.04-arm, target: linux-arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: npm run typecheck:root
+      - run: npm run build
+      - run: npm --prefix vscode-extension ci --ignore-scripts
+      - run: npm --prefix vscode-extension run build
+      - run: npm --prefix vscode-extension test
+      - run: node vscode-extension/test/integrated-smoke.mjs
+      - name: Package
+        working-directory: vscode-extension
+        run: npx vsce package --target ${{ matrix.target }} --no-dependencies --allow-missing-repository
+      - name: Verify package content
+        working-directory: vscode-extension
+        shell: bash
+        run: node test/package-content.mjs kioku-search-${{ matrix.target }}-*.vsix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kioku-${{ matrix.target }}
+          path: vscode-extension/*.vsix

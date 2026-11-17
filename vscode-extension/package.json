@@ -1,7 +1,7 @@
 {
   "name": "kioku-search",
   "displayName": "kioku",
-  "description": "Long-term memory for AI coding agents: keeps lessons from successes and failures and shares them across chats. A claude-mem fork with offline search, bundled for Windows x64.",
+  "description": "Long-term memory for AI coding agents: keeps lessons from successes and failures and shares them across chats. A claude-mem fork with offline search, bundled for Windows, macOS and Linux.",
   "version": "0.4.0",
   "icon": "media/brain.png",
   "publisher": "ShunsukeF",
