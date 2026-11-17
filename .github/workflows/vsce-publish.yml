@@ -34,7 +34,14 @@ jobs:
         run: npm install --ignore-scripts
       - run: npm ci
       - run: npm run build
-      - run: npm test
+      - name: Test
+        shell: bash
+        run: |
+          set +e
+          npm test > test.log 2>&1
+          code=$?
+          if [ $code -ne 0 ]; then grep -E '^\s*not ok|error:|Error' test.log | head -15 | sed 's/^/::error::/'; fi
+          exit $code
       - run: npx @vscode/vsce package --target ${{ matrix.target }} --no-dependencies --allow-missing-repository
       - name: Verify package content
         shell: bash
