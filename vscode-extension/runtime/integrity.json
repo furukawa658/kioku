@@ -6,7 +6,7 @@
     "bun.exe": "cb1d8e6564e655e49d30cead359750a1cbbd12f42651caa4b62244d7bd93c244",
     "licenses/@huggingface-transformers-LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
     "licenses/@img-colour-LICENSE.md": "e2eaa4603c14cb26f301e88648c12a853fa3f0f5da6d4b0972958c666e7f2ab8",
-    "licenses/@img-sharp-win32-x64-LICENSE": "dc1f5d2d43c5531dfe0acaf4e950ea5dbe3e61e1850cf0e983bda7efc10d6693",
+    "licenses/@img-sharp-win32-x64-LICENSE": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
     "licenses/bun-LICENSE.md": "362fe32c954ec829240bd7429c53d705eef08c6bfa45ffc2d02005f857cba4dd",
     "licenses/detect-libc-LICENSE": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
     "licenses/kioku-LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
@@ -271,10 +271,10 @@
     "node_modules/sharp/index.js": "9a422ba84d584bbca8e7d593e4b04193a50dad57f643afe7e4391c64ec09fc33",
     "node_modules/sharp/package.json": "b081c095d7c1e291687d8ca10edfae654ea3b25a46001d516cb770a983edc634",
     "package.json": "d005e022641429a3eb2510ad06d8a01c81f3a03d51ecaca681dade624ebd0004",
-    "scripts/context-read-worker.cjs": "47bf79cf23144c15eed06159c4987d35ec084e7e8658104c8c76f1546087866c",
-    "scripts/mcp-server.cjs": "3fc8d1b5f22fbee510c1cdc58a208102a73dd706b187aafb492f3d2b0e9824c0",
-    "scripts/work-view-read-worker.cjs": "08bbec318c0fd22e4e8a80776cc75d1dd926065c453d063ceedb63c59aa11919",
-    "scripts/worker-service.cjs": "b2679f4d7176c15ae54b7c01f50a43f5e11b514ad1cab84afb5fbe064a36cf12",
+    "scripts/context-read-worker.cjs": "6acfc0f0c6c32d9c439872e0c5e4f614861ca4f2d2e072a83feae9934156281c",
+    "scripts/mcp-server.cjs": "c55f94720282a818b219980db77073b33ca96378b38840e1b84ba8344337c31b",
+    "scripts/work-view-read-worker.cjs": "f55c4aec979a899a66b88c8e8718764084458cfcf6821afa6cfca3b6e53c477b",
+    "scripts/worker-service.cjs": "996e9be41b9db49fbc9d807dcd2c5857b758944f3e17c187283ed21d4dd9ffbb",
     "semantic/transformers.mjs": "9d8d2fd083e2dd515d9b103059c3b9de206e030b5f192068103247c874029dd3"
   }
 }

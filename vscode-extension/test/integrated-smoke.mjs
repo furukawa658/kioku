@@ -44,7 +44,7 @@ try {
   assert.match(client.getInstructions(), /corrections, decisions and reusable lessons/);
   assert.match(client.getInstructions(), /project "user-memory"/);
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map(tool => tool.name).sort(), ['dumb_search', 'get_observations', 'save_memory', 'search', 'timeline', 'work_state_read', 'work_state_write']);
+  assert.deepEqual(tools.map(tool => tool.name).sort(), ['dumb_search', 'get_observations', 'invalidate_memory', 'save_memory', 'search', 'timeline', 'work_state_read', 'work_state_write']);
   for (const name of ['save_memory', 'search', 'get_observations']) assert.ok(tools.some(tool => tool.name === name), name);
   const marker = `KIOKU_SMOKE_${Date.now()}`;
   const saved = await client.callTool({ name: 'save_memory', arguments: { text: `${marker} SQLiteデータベースのバックアップを作成して復元を確認する。`, title: marker, project: 'kioku-distribution-smoke', lesson: 'バックアップ後に復元を確認する。' } });
@@ -68,6 +68,14 @@ try {
   const detail = await client.callTool({ name: 'get_observations', arguments: { ids: [id] } });
   assert.notEqual(detail.isError, true, JSON.stringify(detail));
   assert.match(JSON.stringify(detail), new RegExp(marker));
+  const invalidated = await client.callTool({ name: 'invalidate_memory', arguments: { id, reason: 'smoke validation' } });
+  assert.notEqual(invalidated.isError, true, JSON.stringify(invalidated));
+  const excluded = await (await fetch(`${options.url}/api/search?` + new URLSearchParams({ query: marker, project: 'kioku-distribution-smoke', type: 'observations', format: 'json' }))).json();
+  assert.ok(!excluded.observations.some(row => row.id === id), JSON.stringify(excluded));
+  const restored = await client.callTool({ name: 'invalidate_memory', arguments: { id, restore: true } });
+  assert.notEqual(restored.isError, true, JSON.stringify(restored));
+  const included = await (await fetch(`${options.url}/api/search?` + new URLSearchParams({ query: marker, project: 'kioku-distribution-smoke', type: 'observations', format: 'json' }))).json();
+  assert.ok(included.observations.some(row => row.id === id), JSON.stringify(included));
   const { KiokuClient } = await import(pathToFileURL(path.join(extension, 'client.mjs')).href);
   const sidebar = new KiokuClient(options.url);
   const overview = await sidebar.overview();

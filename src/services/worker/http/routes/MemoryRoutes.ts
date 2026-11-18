@@ -4,6 +4,7 @@ import { BaseRouteHandler } from '../BaseRouteHandler.js';
 import { validateBody } from '../middleware/validateBody.js';
 import type { DatabaseManager } from '../../DatabaseManager.js';
 import { saveMemory } from '../../../memory/save-memory.js';
+import { invalidateMemory } from '../../../memory/invalidate-memory.js';
 import { logger } from '../../../../utils/logger.js';
 import { getProjectContext } from '../../../../utils/project-name.js';
 import { isProjectExcluded } from '../../../../utils/project-filter.js';
@@ -23,6 +24,13 @@ const saveMemorySchema = z.object({
   cwd: z.string().optional(),
 }).strict();
 
+const invalidateMemorySchema = z.object({
+  id: z.number().int().positive(),
+  reason: z.string().optional(),
+  replacedBy: z.number().int().positive().optional(),
+  restore: z.boolean().optional(),
+}).strict();
+
 export class MemoryRoutes extends BaseRouteHandler {
   constructor(
     private dbManager: DatabaseManager,
@@ -33,7 +41,16 @@ export class MemoryRoutes extends BaseRouteHandler {
 
   setupRoutes(app: express.Application): void {
     app.post('/api/memory/save', validateBody(saveMemorySchema), this.handleSaveMemory.bind(this));
+    app.post('/api/memory/invalidate', validateBody(invalidateMemorySchema), this.handleInvalidateMemory.bind(this));
   }
+
+  private handleInvalidateMemory = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    if (isForeignLoopbackBrowserWrite(req)) {
+      res.status(403).json({ error: 'Memory changes from a different localhost origin are not allowed' });
+      return;
+    }
+    res.json(invalidateMemory(this.dbManager.getConnection(), req.body as z.infer<typeof invalidateMemorySchema>));
+  });
 
   private handleSaveMemory = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
     // An explicit save writes a user-visible memory observation, so other

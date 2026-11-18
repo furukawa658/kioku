@@ -134,6 +134,7 @@ type WorkerToolResult = { content: Array<{ type: 'text'; text: string }>; isErro
 
 function workerResultPurpose(endpoint: string, writes: boolean): McpTextPurpose {
   if (endpoint === '/api/memory/save') return 'save';
+  if (endpoint === '/api/memory/invalidate') return 'save';
   if (endpoint === '/api/observations/batch') return 'observations';
   if (endpoint === '/api/tool-uses/batch') return 'tool-uses';
   if (endpoint === '/api/corpus') return writes ? 'corpus-build' : 'corpus-list';
@@ -584,6 +585,25 @@ const tools: McpToolDefinition[] = [
     },
   },
   {
+    name: 'invalidate_memory',
+    description: 'Hide a wrong or outdated note from search without deleting it. Use after search or get_observations shows a note that is no longer true; give the reason and, when a newer note replaces it, replacedBy. Pass restore=true to make it searchable again. Params: id (required), reason, replacedBy, restore.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1, description: 'Observation ID to hide, from search or timeline.' },
+        reason: { type: 'string', description: 'Why the note is no longer valid.' },
+        replacedBy: { type: 'integer', minimum: 1, description: 'ID of the newer note that replaces it.' },
+        restore: { type: 'boolean', description: 'Make a hidden note searchable again.' },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    handler: async (args: any) => {
+      if (selectRuntime() === 'server') return mcpTextResult('invalidate_memory requires worker runtime; no local worker request was made.', true);
+      return callWorker('/api/memory/invalidate', { body: args ?? {} });
+    },
+  },
+  {
     name: 'important_workflow',
     description: `SMART SEARCH (DEFAULT): Use the mem-search skill in three steps; no auto or guided modes. In server runtime, search, timeline, and get_observations use the configured server project.
 1. search(query) → Get index with IDs (~50-100 tokens/result)
@@ -629,7 +649,7 @@ Optional Dumb search: \`dumb_search({query, project})\`. Doesn’t reason about 
   },
   {
     name: 'search',
-    description: 'Smart search (default), step 1: search memory for an index with IDs. Review it, use timeline for context, then get_observations only for selected IDs. Params: query, limit, project, platformSource, type, obs_type, concepts, dateStart, dateEnd, offset, orderBy',
+    description: 'Smart search (default), step 1: search memory for an index with IDs. Matches by meaning as well as keywords using the local semantic backend. Use concrete names or a short question in Japanese or English. Weak semantic candidates may be omitted; an empty result does not prove no relevant memory exists. Review the index, use timeline for context, then get_observations only for selected IDs. Params: query, limit, project, platformSource, type, obs_type, concepts, dateStart, dateEnd, offset, orderBy',
     inputSchema: {
       type: 'object',
       properties: {

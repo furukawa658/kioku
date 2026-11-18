@@ -132,8 +132,8 @@ function parseInstallOptions(argv: string[]): InstallOptions {
     console.error(`Unknown --setup: ${setup}. Allowed: browser, defer`);
     process.exit(1);
   }
-  if (setup && (provider || (runtime && runtime !== 'worker') || values['no-auto-start'] === true && setup === 'browser')) {
-    console.error('--setup requires the worker runtime without --provider; --setup browser also requires auto-start.');
+  if (setup) {
+    console.error('--setup is not supported by this installer.');
     process.exit(1);
   }
   const ide = flag('ide');
@@ -158,7 +158,6 @@ function parseInstallOptions(argv: string[]): InstallOptions {
     noAutoStart: values['no-auto-start'] === true,
     disableAutoMemory: values['disable-auto-memory'] === true,
     runtime: runtime as InstallOptions['runtime'],
-    setup: setup as InstallOptions['setup'],
     serverUrl: flag('server-url'),
     dshProfile: flag('dsh-profile'),
   };
@@ -197,7 +196,7 @@ async function main(): Promise<void> {
     case 'update':
     case 'upgrade': {
       const { runInstallCommand } = await import('./commands/install.js');
-      await runInstallCommand({ update: true });
+      await runInstallCommand();
       break;
     }
 

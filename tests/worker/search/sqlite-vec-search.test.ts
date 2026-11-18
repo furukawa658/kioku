@@ -6,6 +6,7 @@ import type { Embedder } from '../../../src/services/vector/types.js';
 import { SearchManager } from '../../../src/services/worker/SearchManager.js';
 import { FormattingService } from '../../../src/services/worker/FormattingService.js';
 import { TimelineService } from '../../../src/services/worker/TimelineService.js';
+import { invalidateMemory } from '../../../src/services/memory/invalidate-memory.js';
 
 function fixture() {
   const store = new SessionStore(':memory:');
@@ -33,9 +34,29 @@ test('finds meaning without keyword overlap and keeps project/type/file/date fil
       obsType: 'discovery', files: ['src/allowed.ts'], concepts: ['concept'], dateRange: { start: 0, end: 2000 } });
     expect(result.results.observations.map(row => row.id)).toEqual([expected]);
     expect(result.strategy).toBe('hybrid');
+    expect(result.results.observations[0]).toMatchObject({ searchDiagnostics: {
+      keywordMatch: false, similarity: expect.any(Number), z: null,
+    } });
     expect((await setup.search.search({ query: 'meaning', project: 'allowed', searchType: 'observations', files: ['absent.ts'] })).results.observations).toEqual([]);
     expect((await setup.search.search({ query: 'meaning', project: 'allowed', searchType: 'observations', obsType: 'bugfix' })).results.observations).toEqual([]);
     expect((await setup.search.search({ query: 'meaning', project: 'allowed', searchType: 'observations', dateRange: { start: 2000 } })).results.observations).toEqual([]);
+  } finally { setup.store.close(); }
+});
+
+test('uses the unfiltered category for cutoff and excludes invalidated semantic hits', async () => {
+  const setup = fixture();
+  try {
+    const expected = setup.add('semantic stored note');
+    setup.add('ordinary allowed note');
+    for (let index = 0; index < 12; index++) setup.add(`ordinary blocked ${index}`, 'blocked');
+    const options = { query: 'meaning', project: 'allowed', searchType: 'observations' as const };
+    for (const orderBy of [undefined, 'date_asc', 'date_desc'] as const) {
+      expect((await setup.search.search({ ...options, orderBy })).results.observations.map(row => row.id)).toEqual([expected]);
+    }
+    invalidateMemory(setup.store.db, { id: expected });
+    expect((await setup.search.search(options)).results.observations).toEqual([]);
+    invalidateMemory(setup.store.db, { id: expected, restore: true });
+    expect((await setup.search.search(options)).results.observations.map(row => row.id)).toEqual([expected]);
   } finally { setup.store.close(); }
 });
 
