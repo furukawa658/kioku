@@ -63,6 +63,14 @@ function runCli(args: string[]) {
 }
 
 describe('npx CLI subcommand --help', () => {
+  it('rejects unsupported setup before running the installer', () => {
+    const result = runCli(['install', '--setup', 'browser']);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('--setup is not supported by this installer.');
+    expect(result.stdout).not.toContain('claude-mem install');
+    expect(result.homeEntries).toEqual([]);
+  });
+
   for (const [index, sub] of ['install', 'update', 'upgrade', 'uninstall', 'remove', 'repair', 'prune', 'start', 'stop', 'restart', 'adopt', 'cleanup'].entries()) {
     const flag = index % 2 === 0 ? '--help' : '-h';
     it(`${sub} ${flag} prints help and does not run the command`, () => {

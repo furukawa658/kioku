@@ -43,12 +43,10 @@ To make the agent search and save lessons without being asked, add this to your 
 - **Offline meaning search.** A multilingual embedding model and ONNX Runtime are bundled. Vectors are stored in SQLite and combined with keyword search. No Chroma server, model download or external request is needed.
 - **Local-only defaults.** Automatic conversation capture, observation by an external AI, cloud sync, telemetry and automatic updates are turned off.
 
-kioku is developed as a fork of [claude-mem](https://github.com/thedotmack/claude-mem). It keeps claude-mem's worker, database and MCP tools, and is distributed under the same Apache-2.0 license.
-
-## What kioku adds to claude-mem
+## What is included
 
 - **Lesson fields.** `save_memory` accepts `outcome`, `cause` and `lesson`, and `search` can select lessons with `concepts="lesson"`. The tool instructions ask the agent to record the cause and the lesson, not only progress or results.
-- **A compact MCP surface.** The extension exposes seven tools (`search`, `timeline`, `get_observations`, `save_memory`, `dumb_search`, `work_state_read`, `work_state_write`) with short instructions to keep the agent's context small.
+- **A compact MCP surface.** The extension exposes eight tools (`search`, `timeline`, `get_observations`, `save_memory`, `invalidate_memory`, `dumb_search`, `work_state_read`, `work_state_write`) with short instructions to keep the agent's context small.
 - **Summaries without AI credits.** A local script makes an extractive summary. Summarizing with GitHub Copilot is an explicit opt-in.
 - **A small sidebar** to browse and read saved memories. It is a viewer; the value is in the lessons the agent saves and reuses.
 
@@ -56,7 +54,7 @@ This extension supports Windows x64, macOS (Intel and Apple silicon) and Linux (
 
 ## Install
 
-1. Install from the Marketplace (`ext install ShunsukeF.kioku-search`). To install a file instead, select "Install from VSIX..." in the Extensions view and choose the VSIX for your platform, for example `kioku-search-win32-x64-0.4.3.vsix`. If an earlier version with the same extension ID exists, it will be updated in place.
+1. Install from the Marketplace (`ext install ShunsukeF.kioku-search`). To install a file instead, select "Install from VSIX..." in the Extensions view and choose the VSIX for your platform, for example `kioku-search-win32-x64-0.5.0.vsix`. If an earlier version with the same extension ID exists, it will be updated in place.
 2. Reload VS Code if prompted, and open a trusted workspace folder.
 3. Open the kioku brain icon on the activity bar. If the worker is not running, the bundled version starts. On first launch, wait for database initialization. A memory count of 0 is normal for a new user.
 4. In Copilot Chat's MCP list, start "kioku (local)" and allow access in the VS Code confirmation prompt.
@@ -72,6 +70,10 @@ The sidebar UI is English by default and can be switched to Japanese using the l
 The agent is instructed to save reusable user corrections and standing instructions, including available user memory notes, as lessons with their source and applicability. User-wide lessons use the `user-memory` project. This relies on the agent's judgment and does not guarantee every instruction will be saved. You can also ask Copilot Chat explicitly: "Save this decision with kioku save_memory". Do not include confidential information or credentials in memories. The chat interaction itself that invokes the MCP tool is subject to your Copilot terms and plan.
 
 When saving successful or failed work, specify the `save_memory` fields `outcome` (`success`, `failure`, or `mixed`), `cause` (reason for success or failure), and `lesson` (what to do or avoid next time, and under what conditions). Memories with a `lesson` can be filtered in `search` by setting `concepts` to `lesson`.
+
+Save one topic per memory. Include the conditions and concrete names needed to apply a lesson. Search with those names or a short question. Semantic candidates are filtered against the score distribution for the query; keyword matches are retained. Empty results do not prove that no relevant memory exists.
+
+Use `invalidate_memory({id, reason, replacedBy})` when a saved observation is outdated or incorrect. It is retained for reference but excluded from search. Set `restore: true` to make it searchable again. This is not deletion of the stored content.
 
 Use the kioku brain icon to search by keywords, project, start date, and end date. Up to 50 results are displayed; selecting a result shows the body and facts. The view also displays connection status and the total memory count. There is no delete action in the UI.
 
@@ -112,3 +114,7 @@ node vscode-extension/test/integrated-smoke.mjs
 ```
 
 Run `vsce package --target <target> --no-dependencies --allow-missing-repository` in the extension folder, where `<target>` is `win32-x64`, `darwin-x64`, `darwin-arm64`, `linux-x64` or `linux-arm64`. Then run `node test/package-content.mjs <vsix>`. SHA-256 hashes of bundled runtime files are listed in `runtime/integrity.json`; licenses and notices are included in `runtime/licenses` and `runtime/THIRD-PARTY-NOTICES.txt`. The license for the Lucide toolbar icons is in `media/lucide-license.txt`.
+
+## Acknowledgments and license
+
+Developed from [claude-mem](https://github.com/thedotmack/claude-mem). Distributed under Apache-2.0; original copyright and attribution notices are retained in LICENSE and NOTICE. kioku is not affiliated with the Claude-Mem project or cmem.ai.

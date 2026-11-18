@@ -16,12 +16,14 @@ export function memoryInstructionsForRuntime(runtime: 'worker' | 'server'): stri
 }
 
 export const KIOKU_EXTENSION_TOOL_NAMES = [
-  'search', 'timeline', 'get_observations', 'save_memory', 'dumb_search', 'work_state_read', 'work_state_write',
+  'search', 'timeline', 'get_observations', 'save_memory', 'invalidate_memory', 'dumb_search', 'work_state_read', 'work_state_write',
 ] as const;
 
 export const KIOKU_EXTENSION_INSTRUCTIONS = `# kioku memory use
 Search in three steps: search({query, project}) for an index, timeline({anchor}) for context around a result, then get_observations({ids}) for the records you choose. dumb_search({query, project}) is a faster keyword-only search.
 save_memory({text, title, project}) stores corrections, decisions and reusable lessons; search for duplicates first and skip one-off requests. When work succeeded or failed, also pass outcome, cause and lesson, and find lessons again with search({concepts: "lesson"}). Use project "user-memory" for notes that apply to every workspace. Never store credentials or private material.
+invalidate_memory({id, reason, replacedBy}) hides a note that is wrong or outdated from search; pass restore=true to bring it back. Prefer it to saving a contradicting note.
+Save one topic per note. Include concrete names and the conditions where a lesson applies so it can be found and used correctly later.
 work_state_write tracks to-do lists and changing state: list="<name>" with fields such as {"task": "<name>", "status": "todo" | "doing" | "done" | "dropped"}; "status": "done" closes a list. work_state_read returns open lists; pass includeClosed=true for closed ones. Open lists are not shown automatically, so read them when resuming work.`;
 
 export const WORK_STATE_RULE = [

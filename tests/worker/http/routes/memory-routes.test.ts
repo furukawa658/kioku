@@ -3,6 +3,30 @@ import type { Request, Response } from 'express';
 import { logger } from '../../../../src/utils/logger.js';
 
 import { MemoryRoutes } from '../../../../src/services/worker/http/routes/MemoryRoutes.js';
+import { SessionStore } from '../../../../src/services/sqlite/SessionStore.js';
+
+it('validates, invalidates and restores through the memory HTTP route', async () => {
+  const store = new SessionStore(':memory:');
+  try {
+    const session = store.getOrCreateManualSession('route-test', 'claude');
+    const id = store.storeObservation(session, 'route-test', {
+      type: 'discovery', title: 'route note', subtitle: null, narrative: 'route note',
+      facts: [], concepts: [], files_read: [], files_modified: [],
+    }, 0, 0).id;
+    const routes = new MemoryRoutes({ getConnection: () => store.db } as any, 'route-test');
+    const app: any = {};
+    const handler = captureChain(app, '/api/memory/invalidate');
+    routes.setupRoutes(app);
+    for (const restore of [false, true]) {
+      const { req, res, jsonSpy } = createMockReqRes({ id, restore });
+      await handler(req as Request, res as Response);
+      expect(jsonSpy.mock.calls[0][0]).toMatchObject({ success: true, id, invalidated: !restore });
+    }
+    const invalid = createMockReqRes({ id: -1 });
+    await handler(invalid.req as Request, invalid.res as Response);
+    expect(invalid.statusSpy).toHaveBeenCalledWith(400);
+  } finally { store.close(); }
+});
 
 let loggerSpies: ReturnType<typeof spyOn>[] = [];
 

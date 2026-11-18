@@ -422,7 +422,15 @@ export class SessionSearch {
       }
     }
 
+    if (tableAlias === 'o' && this.hasInvalidationTable()) conditions.push(SessionSearch.EXCLUDE_INVALIDATED);
     return conditions.length > 0 ? conditions.join(' AND ') : '';
+  }
+
+  /** Table written by invalidate_memory; absent until the first invalidation. */
+  private static readonly EXCLUDE_INVALIDATED = 'NOT EXISTS (SELECT 1 FROM invalidated_observations iv WHERE iv.observation_id = o.id)';
+
+  private hasInvalidationTable(): boolean {
+    return !!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='invalidated_observations'").get();
   }
 
   /**
@@ -769,7 +777,7 @@ export class SessionSearch {
 
     if (!query) {
       const filterClause = this.buildFilterClause(filters, params, 'o');
-      if (!filterClause) {
+      if (!filterClause || filterClause === SessionSearch.EXCLUDE_INVALIDATED) {
         // No query text and no filters: nothing to match, so return an empty
         // result set rather than treating a benign empty search as an error.
         return [];

@@ -22,6 +22,23 @@ export function createLocalVectorSearch(searcher: SessionSearch, store: SessionS
   }
 }
 
+const MIN_VECTORS_FOR_CUTOFF = 8;
+
+/**
+ * Keeps only hits that stand out from the rest of the category: cosine distance
+ * at least `KIOKU_VECTOR_MIN_Z` standard deviations (default 1.4) below the mean.
+ * A fixed similarity floor does not work because multilingual-e5 scores every
+ * text pair high; the spread of this query's own scores does. 0 disables it.
+ */
+export function relevantHits<T extends { distance: number }>(sorted: T[]): T[] {
+  const minZ = Number(process.env.KIOKU_VECTOR_MIN_Z ?? 1.4);
+  if (!(minZ > 0) || sorted.length < MIN_VECTORS_FOR_CUTOFF) return sorted;
+  const mean = sorted.reduce((sum, hit) => sum + hit.distance, 0) / sorted.length;
+  const std = Math.sqrt(sorted.reduce((sum, hit) => sum + (hit.distance - mean) ** 2, 0) / sorted.length);
+  if (std === 0) return sorted;
+  return sorted.filter(hit => (mean - hit.distance) / std >= minZ);
+}
+
 const TEXT_FIELDS: Record<SearchCategory, string[]> = {
   observations: ['title', 'subtitle', 'text', 'narrative', 'facts', 'concepts', 'files_read', 'files_modified'],
   sessions: ['request', 'investigated', 'learned', 'completed', 'next_steps', 'notes'],
@@ -54,7 +71,7 @@ export class SQLiteVecSearch {
           (SELECT 1 FROM ${table} WHERE id = CAST(substr(local_vectors.key, instr(local_vectors.key, ':') + 1) AS INTEGER))`)
           .run(`${category}:%`);
       }
-      const candidates = this.candidates(options);
+      const candidates = this.candidates({ searchType: options.searchType });
       const pending = candidates.filter(item => !this.index.has(item.key, item.hash));
       for (let start = 0; start < pending.length; start += 8) {
         const batch = pending.slice(start, start + 8);
@@ -71,10 +88,14 @@ export class SQLiteVecSearch {
       for (const category of SEARCH_CATEGORIES) {
         const items = eligible.filter(item => item.category === category);
         const byKey = new Map(items.map(item => [item.key, item.row]));
-        const nearest = this.index.nearest(query, [...byKey.keys()], offset + limit);
+        const categoryKeys = candidates.filter(item => item.category === category).map(item => item.key);
+        const nearest = this.index.nearest(query, categoryKeys, categoryKeys.length || 1);
+        const mean = nearest.reduce((sum, hit) => sum + hit.distance, 0) / (nearest.length || 1);
+        const deviation = Math.sqrt(nearest.reduce((sum, hit) => sum + (hit.distance - mean) ** 2, 0) / (nearest.length || 1));
+        const distances = new Map(nearest.map(hit => [hit.key, hit.distance]));
         const scores = new Map<number, number>();
         const rows = new Map<number, SearchResult>();
-        for (const [rank, hit] of nearest.entries()) {
+        for (const [rank, hit] of relevantHits(nearest).filter(hit => byKey.has(hit.key)).slice(0, offset + limit).entries()) {
           const row = byKey.get(hit.key)!;
           rows.set(row.id, row);
           scores.set(row.id, 1 / (60 + rank + 1));
@@ -90,7 +111,17 @@ export class SQLiteVecSearch {
           if (options.orderBy === 'date_desc') return right.created_at_epoch - left.created_at_epoch || right.id - left.id;
           return scores.get(right.id)! - scores.get(left.id)! || left.id - right.id;
         });
-        this.setCategory(results, category, ranked.slice(offset, offset + limit));
+        const keywordIds = new Set(keyword.results[category].map(row => row.id));
+        const selected = ranked.slice(offset, offset + limit).map(row => {
+          const distance = distances.get(`${category}:${row.id}`);
+          return { ...row, searchDiagnostics: {
+            similarity: distance === undefined ? null : 1 - distance,
+            z: distance === undefined || deviation === 0 ? null : (mean - distance) / deviation,
+            keywordMatch: keywordIds.has(row.id),
+          } };
+        });
+        logger.debug('SEARCH', 'Local search scores', { category, scores: selected.map(row => ({ id: row.id, ...row.searchDiagnostics })) });
+        this.setCategory(results, category, selected);
       }
       semantic = true;
     } catch (error) {
