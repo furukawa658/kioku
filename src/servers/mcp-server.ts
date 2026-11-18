@@ -128,6 +128,8 @@ interface WorkerCallOptions {
   text?: boolean;
   /** Long corpus work: read the worker's SSE heartbeat stream instead of one JSON reply. */
   streamCorpusProgress?: boolean;
+  /** IDs the caller asked for, so the reply can name the ones that were not found. */
+  requestedIds?: unknown[];
 }
 
 type WorkerToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
@@ -196,7 +198,7 @@ async function requestWorker(endpoint: string, opts: WorkerCallOptions): Promise
   if (opts.text) {
     return mcpTextResult(await response.text());
   }
-  return formatWorkerMcpResponse(workerResultPurpose(endpoint, Boolean(opts.body)), await response.json());
+  return formatWorkerMcpResponse(workerResultPurpose(endpoint, Boolean(opts.body)), await response.json(), { requestedIds: opts.requestedIds });
 }
 
 /**
@@ -743,9 +745,9 @@ Optional Dumb search: \`dumb_search({query, project})\`. Doesn’t reason about 
         const ctx = requireServerForObservationTool('get_observations');
         if (!Array.isArray(args?.ids) || !args.ids.length || args.ids.some((id: unknown) => (typeof id !== 'string' && typeof id !== 'number') || !String(id).trim())) return mcpTextResult('Select nonempty observation IDs from search and timeline.', true);
         if (args?.project !== undefined || args?.orderBy !== undefined || args?.limit !== undefined) return mcpTextResult('Server get_observations uses ids and optional projectId; local filters are unsupported.', true);
-        return formatMcpPayload('observations', await ctx.client.selectedObservations({ projectId: args.projectId || ctx.projectId, ids: args.ids.map(String) }));
+        return formatMcpPayload('observations', await ctx.client.selectedObservations({ projectId: args.projectId || ctx.projectId, ids: args.ids.map(String) }), { requestedIds: args.ids });
       }
-      return await callWorker('/api/observations/batch', { body: withCheckoutProjects(args ?? {}, currentCheckout()) });
+      return await callWorker('/api/observations/batch', { body: withCheckoutProjects(args ?? {}, currentCheckout()), requestedIds: Array.isArray(args?.ids) ? args.ids : undefined });
     }
   },
   {
@@ -796,18 +798,19 @@ Optional Dumb search: \`dumb_search({query, project})\`. Doesn’t reason about 
   },
   {
     name: 'work_state_read',
-    description: "Read this project's to-do lists and working state written with work_state_write: every open item, or one list, with done and dropped items when includeClosed is true. Params: list, includeClosed.",
+    description: "Read this project's to-do lists and working state written with work_state_write: every open item, or one list, with done and dropped items when includeClosed is true. Lists not updated for 14 days are folded into one line unless list or includeStale is given. Params: list, includeClosed, includeStale.",
     inputSchema: {
       type: 'object',
       properties: {
         list: { type: 'string', description: 'Read only this list' },
         includeClosed: { type: 'boolean', description: 'Also show done and dropped items and closed lists' },
+        includeStale: { type: 'boolean', description: 'Also show open lists not updated for 14 days in full' },
       },
       additionalProperties: false,
     },
     annotations: READ_ONLY_TOOL_ANNOTATIONS,
     handler: async (args: any) => callWorker('/api/work-state', {
-      query: { cwd: getRequestCwd(), list: args?.list, includeClosed: args?.includeClosed },
+      query: { cwd: getRequestCwd(), list: args?.list, includeClosed: args?.includeClosed, includeStale: args?.includeStale },
       text: true,
     }),
   },

@@ -62,7 +62,12 @@ export function assertSearchHasQueryOrFilter(input: SearchRequestInput): void {
   const hasFilter = hasDateRange
     || [input.project, input.platformSource, input.obsType, input.concepts, input.files].some(isPresent);
   if (!isPresent(input.query) && !hasFilter) {
-    throw new AppError('Either query or filters required for search', 400, 'INVALID_SEARCH_REQUEST');
+    throw new AppError(
+      'Search needs query text or at least one filter: project, platformSource, obs_type, concepts, files, dateStart/dateEnd. '
+        + 'Example: search({query:"release"}) or search({concepts:"lesson"})',
+      400,
+      'INVALID_SEARCH_REQUEST',
+    );
   }
 }
 

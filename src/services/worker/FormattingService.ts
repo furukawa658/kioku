@@ -8,6 +8,15 @@ const CHARS_PER_TOKEN_ESTIMATE = 4;
 
 export const singleLineTitle = (value: string): string => value.replace(/[\r\n\u2028\u2029]+/g, ' ');
 
+/** Approximate tokens get_observations returns for one record; shared by search and timeline "Read" columns. */
+export function estimateObservationReadTokens(obs: Pick<ObservationSearchResult, 'title' | 'subtitle' | 'narrative' | 'facts'>): number {
+  const size = (obs.title?.length || 0) +
+               (obs.subtitle?.length || 0) +
+               (obs.narrative?.length || 0) +
+               (obs.facts?.length || 0);
+  return Math.ceil(size / CHARS_PER_TOKEN_ESTIMATE);
+}
+
 export class FormattingService {
   formatSearchTips(): string {
     return `\n---
@@ -23,11 +32,7 @@ Tips:
   }
 
   private estimateReadTokens(obs: ObservationSearchResult): number {
-    const size = (obs.title?.length || 0) +
-                 (obs.subtitle?.length || 0) +
-                 (obs.narrative?.length || 0) +
-                 (obs.facts?.length || 0);
-    return Math.ceil(size / CHARS_PER_TOKEN_ESTIMATE);
+    return estimateObservationReadTokens(obs);
   }
 
   formatObservationIndex(obs: ObservationSearchResult, _index: number): string {
