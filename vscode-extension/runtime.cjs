@@ -44,7 +44,7 @@ function runtimeOptions(extensionPath, configured = '', env = process.env) {
   };
   return {
     root, dataDir, url: url.origin, command: path.join(root, process.platform === 'win32' ? 'bun.exe' : 'bun'), requireLocalVectors: true,
-    worker, launcher: path.join(root, process.platform === 'win32' ? 'kioku-worker-launcher.exe' : 'kioku-worker-launcher'),
+    worker,
     mcp: path.join(root, 'scripts', 'mcp-server.cjs'),
     version: JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version,
     overrides, env: { ...env, ...overrides }
@@ -70,7 +70,7 @@ async function probe(options, request = fetch) {
 
 function launchWorker(options, spawnProcess = spawn) {
   return new Promise((resolve, reject) => {
-    const child = spawnProcess(options.launcher, [options.command, options.worker, options.root], {
+    const child = spawnProcess(options.command, [options.worker, '--daemon'], {
       cwd: options.root, env: options.env, detached: true, stdio: 'ignore', windowsHide: true
     });
     child.once('error', reject);
@@ -88,7 +88,7 @@ async function ensureRuntime(options, deps = {}) {
   if (running) return;
   let launched = false;
   if (running === undefined) {
-    for (const file of [options.launcher, options.command, options.worker, options.mcp]) {
+    for (const file of [options.command, options.worker, options.mcp]) {
       if (!exists(file)) throw new Error(`Missing bundled runtime: ${path.basename(file)}`);
     }
     fs.mkdirSync(options.dataDir, { recursive: true });

@@ -1,11 +1,10 @@
 import { build } from 'esbuild';
-import { chmod, cp, mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
+import { chmod, cp, mkdir, readFile, writeFile, readdir, rm, stat } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stageSemantic, download } from './stage-semantic.mjs';
-import { buildWorkerLauncher } from './native/build-launcher.mjs';
 
 const extension = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.dirname(extension);
@@ -15,8 +14,8 @@ if (!supported.includes(`${process.platform}-${process.arch}`)) throw new Error(
 const windows = process.platform === 'win32';
 await mkdir(path.join(runtime, 'scripts'), { recursive: true });
 await mkdir(path.join(runtime, 'licenses'), { recursive: true });
-console.log(`Building native worker launcher`);
-await buildWorkerLauncher();
+await rm(path.join(runtime, 'kioku-worker-launcher.exe'), { force: true });
+await rm(path.join(runtime, 'kioku-worker-launcher'), { force: true });
 // Bunはネイティブバイナリのため、ビルドしたOSと同じ実行環境向けのVSIXになる
 const bun = process.env.KIOKU_BUN_EXE || execFileSync(windows ? 'where.exe' : 'which', [windows ? 'bun.exe' : 'bun'], { encoding: 'utf8' }).trim().split(/\r?\n/)[0];
 const bunVersion = execFileSync(bun, ['--version'], { encoding: 'utf8' }).trim();
