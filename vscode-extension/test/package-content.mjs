@@ -31,6 +31,7 @@ for (const name of ['runtime/scripts/worker-service.cjs', 'runtime/scripts/mcp-s
   assert.ok(entries.has(`extension/${name}`), `Missing ${name}`);
 }
 assert.ok(!entries.has('extension/runtime/semantic/vec0.dll'), 'vec0.dll must not be bundled');
+assert.ok(![...entries.keys()].some(file => /(?:^|\/)(?:chroma|chromadb|chroma-mcp)(?:\/|\.|$)/i.test(file)), 'Chroma runtime assets must not be bundled');
 const pkg = JSON.parse(entries.get('extension/package.json'));
 assert.equal(pkg.version, require('../package.json').version);
 for (const name of ['DirectML.dll', 'dxcompiler.dll', 'dxil.dll']) {
@@ -52,15 +53,16 @@ const target = entries.get('extension.vsixmanifest').toString().match(/TargetPla
 assert.ok(['win32-x64', 'darwin-x64', 'darwin-arm64', 'linux-x64', 'linux-arm64'].includes(target), `Unexpected target ${target}`);
 const [os, arch] = target.split('-');
 const bunFile = os === 'win32' ? 'runtime/bun.exe' : 'runtime/bun';
-const launcherFile = os === 'win32' ? 'runtime/kioku-worker-launcher.exe' : 'runtime/kioku-worker-launcher';
 const magics = { win32: ['4d5a'], linux: ['7f454c46'], darwin: ['cffaedfe', 'cafebabe', 'bebafeca'] };
-for (const binary of [bunFile, launcherFile]) {
+for (const binary of [bunFile]) {
   const entry = entries.get(`extension/${binary}`);
   assert.ok(entry, `Missing ${binary}`);
   const magic = entry.subarray(0, 4);
   assert.ok(magics[os].some(hex => magic.toString('hex').startsWith(hex)), `Unexpected ${binary} binary header for ${target}`);
 }
 assert.ok(entries.has(`extension/runtime/node_modules/onnxruntime-node/bin/napi-v6/${os}/${arch.replace('x64', 'x64')}/onnxruntime_binding.node`), `Missing onnxruntime binding for ${target}`);
+assert.ok(![...entries.keys()].some(file => /kioku-worker-launcher/.test(file)), 'native launcher must not be bundled');
+assert.ok(![...entries.keys()].some(file => file.startsWith('extension/runtime/node_modules/') && /\.(?:d\.ts|map)$/.test(file)), 'ONNX development artifacts must not be bundled');
 for (const file of entries.keys()) {
   const other = file.match(/onnxruntime-node\/bin\/napi-v6\/([a-z0-9]+)\/([a-z0-9]+)\//);
   if (other) assert.equal(`${other[1]}-${other[2]}`, target, `Foreign onnxruntime binary: ${file}`);

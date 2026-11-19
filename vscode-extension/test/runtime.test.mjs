@@ -30,10 +30,10 @@ test('only connection refused permits a new worker', async () => {
   await assert.rejects(probe(options, async () => { throw new Error('timeout'); }), /timeout/);
 });
 
-test('connection refused delegates worker startup to the native launcher', async () => {
+test('connection refused delegates worker startup to the bundled Bun runtime', async () => {
   let launched = 0;
   let probes = 0;
-  const launchOptions = { ...options, launcher: 'kioku-launcher', command: 'bun.exe', worker: 'worker.cjs', mcp: 'mcp.cjs', root: '.', dataDir: '.', env: {} };
+  const launchOptions = { ...options, command: 'bun.exe', worker: 'worker.cjs', mcp: 'mcp.cjs', root: '.', dataDir: '.', env: {} };
   await ensureRuntime(launchOptions, {
     existsSync: () => true,
     launchWorker: async received => {
@@ -54,7 +54,7 @@ test('connection refused delegates worker startup to the native launcher', async
 test('startup retries only after sustained connection refusal', async () => {
   let launched = 0;
   let probes = 0;
-  const launchOptions = { ...options, launcher: 'kioku-launcher', command: 'bun.exe', worker: 'worker.cjs', mcp: 'mcp.cjs', root: '.', dataDir: '.', env: {} };
+  const launchOptions = { ...options, command: 'bun.exe', worker: 'worker.cjs', mcp: 'mcp.cjs', root: '.', dataDir: '.', env: {} };
   await ensureRuntime(launchOptions, {
     existsSync: () => true,
     launchWorker: async () => { launched++; },
@@ -71,14 +71,14 @@ test('startup retries only after sustained connection refusal', async () => {
   assert.ok(probes >= 3);
 });
 
-test('native launcher is detached and unreferenced after spawn', async () => {
-  const launchOptions = { launcher: 'kioku-launcher', command: 'bun.exe', worker: 'worker.cjs', root: '.', env: {} };
+test('bundled Bun worker is detached and unreferenced after spawn', async () => {
+  const launchOptions = { command: 'bun.exe', worker: 'worker.cjs', root: '.', env: {} };
   const child = new EventEmitter();
   let unref = 0;
   child.unref = () => { unref++; };
   const launched = launchWorker(launchOptions, (command, args, received) => {
-    assert.equal(command, launchOptions.launcher);
-    assert.deepEqual(args, [launchOptions.command, launchOptions.worker, launchOptions.root]);
+    assert.equal(command, launchOptions.command);
+    assert.deepEqual(args, [launchOptions.worker, '--daemon']);
     assert.equal(received.detached, true);
     assert.equal(received.stdio, 'ignore');
     queueMicrotask(() => child.emit('spawn'));
