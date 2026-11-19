@@ -51,6 +51,26 @@ test('connection refused delegates worker startup to the native launcher', async
   assert.equal(probes, 3);
 });
 
+test('startup retries only after sustained connection refusal', async () => {
+  let launched = 0;
+  let probes = 0;
+  const launchOptions = { ...options, launcher: 'kioku-launcher', command: 'bun.exe', worker: 'worker.cjs', mcp: 'mcp.cjs', root: '.', dataDir: '.', env: {} };
+  await ensureRuntime(launchOptions, {
+    existsSync: () => true,
+    launchWorker: async () => { launched++; },
+    timeout: 30,
+    interval: 1,
+    retryInterval: 5,
+    fetch: async () => {
+      probes++;
+      if (launched < 2) throw new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } });
+      return Response.json({ version: launchOptions.version, localVectorSearch: true });
+    }
+  });
+  assert.equal(launched, 2);
+  assert.ok(probes >= 3);
+});
+
 test('native launcher is detached and unreferenced after spawn', async () => {
   const launchOptions = { launcher: 'kioku-launcher', command: 'bun.exe', worker: 'worker.cjs', root: '.', env: {} };
   const child = new EventEmitter();

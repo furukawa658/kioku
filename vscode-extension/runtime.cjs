@@ -96,12 +96,21 @@ async function ensureRuntime(options, deps = {}) {
     launched = true;
   }
   const deadline = Date.now() + (deps.timeout ?? 60000);
+  const retryInterval = deps.retryInterval ?? 5000;
+  let lastLaunch = Date.now();
   while (Date.now() < deadline) {
+    let unavailable = false;
     try {
-      if (await probe(options, request)) return;
+      const state = await probe(options, request);
+      if (state) return;
+      unavailable = state === undefined;
     } catch (error) {
       const starting = error.name === 'TimeoutError' || ['ECONNRESET', 'UND_ERR_SOCKET'].includes(error.cause?.code);
       if (!starting || !launched) throw error;
+    }
+    if (launched && unavailable && Date.now() - lastLaunch >= retryInterval) {
+      await (deps.launchWorker || launchWorker)(options);
+      lastLaunch = Date.now();
     }
     await new Promise(resolve => setTimeout(resolve, deps.interval ?? 250));
   }
