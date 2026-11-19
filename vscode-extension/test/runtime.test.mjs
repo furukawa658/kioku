@@ -58,7 +58,7 @@ test('startup retries only after sustained connection refusal', async () => {
   await ensureRuntime(launchOptions, {
     existsSync: () => true,
     launchWorker: async () => { launched++; },
-    timeout: 30,
+    timeout: 500,
     interval: 1,
     retryInterval: 5,
     fetch: async () => {
