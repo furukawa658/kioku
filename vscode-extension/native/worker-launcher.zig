@@ -1,10 +1,7 @@
 const std = @import("std");
 
-pub fn main() !void {
-    const allocator = std.heap.page_allocator;
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
+pub fn main(init: std.process.Init) !void {
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
     if (args.len != 4) return error.InvalidArguments;
 
     const worker_args = [_][]const u8{
@@ -12,10 +9,12 @@ pub fn main() !void {
         args[2],
         "--daemon",
     };
-    var child = std.process.Child.init(&worker_args, allocator);
-    child.cwd = args[3];
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Ignore;
-    child.stderr_behavior = .Ignore;
-    try child.spawn();
+    _ = try std.process.spawn(init.io, .{
+        .argv = &worker_args,
+        .cwd = .{ .path = args[3] },
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+        .create_no_window = true,
+    });
 }
