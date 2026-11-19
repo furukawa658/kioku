@@ -9,7 +9,10 @@ export function buildWorkerLauncher(zig = process.env.KIOKU_ZIG_EXE || 'zig') {
   const runtime = path.join(extension, 'runtime');
   const output = path.join(runtime, process.platform === 'win32' ? 'kioku-worker-launcher.exe' : 'kioku-worker-launcher');
   const args = ['build-exe', source, '-OReleaseSmall', '-fstrip', `-femit-bin=${output}`];
-  if (process.platform === 'darwin') args.push('-lc');
+  if (process.platform === 'darwin') {
+    const sdk = execFileSync('xcrun', ['--sdk', 'macosx', '--show-sdk-path'], { encoding: 'utf8' }).trim();
+    args.push(`-L${path.join(sdk, 'usr', 'lib')}`, '-lSystem');
+  }
   execFileSync(zig, args, { cwd: extension, stdio: 'inherit' });
   return output;
 }
