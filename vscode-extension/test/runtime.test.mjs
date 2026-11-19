@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
-const { ensureRuntime, probe } = createRequire(import.meta.url)('../runtime.cjs');
+const { ensureRuntime, launchWorker, probe } = createRequire(import.meta.url)('../runtime.cjs');
 const options = { url: 'http://127.0.0.1:39991', version: '15.16.0' };
 
 test('ready shared worker is reused without spawning or stopping', async () => {
@@ -48,6 +49,23 @@ test('connection refused delegates worker startup to the native launcher', async
   });
   assert.equal(launched, 1);
   assert.equal(probes, 3);
+});
+
+test('native launcher is detached and unreferenced after spawn', async () => {
+  const launchOptions = { launcher: 'kioku-launcher', command: 'bun.exe', worker: 'worker.cjs', root: '.', env: {} };
+  const child = new EventEmitter();
+  let unref = 0;
+  child.unref = () => { unref++; };
+  const launched = launchWorker(launchOptions, (command, args, received) => {
+    assert.equal(command, launchOptions.launcher);
+    assert.deepEqual(args, [launchOptions.command, launchOptions.worker, launchOptions.root]);
+    assert.equal(received.detached, true);
+    assert.equal(received.stdio, 'ignore');
+    queueMicrotask(() => child.emit('spawn'));
+    return child;
+  });
+  await launched;
+  assert.equal(unref, 1);
 });
 
 test('all-in-one extension rejects a keyword-only shared worker without stopping it', async () => {

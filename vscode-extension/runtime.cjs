@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const { resolveConnection } = require('./connection.cjs');
 
 function runtimeOptions(extensionPath, configured = '', env = process.env) {
@@ -68,11 +68,16 @@ async function probe(options, request = fetch) {
   }
 }
 
-function launchWorker(options) {
+function launchWorker(options, spawnProcess = spawn) {
   return new Promise((resolve, reject) => {
-    execFile(options.launcher, [options.command, options.worker, options.root], {
-      cwd: options.root, env: options.env, windowsHide: true, timeout: 10000
-    }, error => error ? reject(error) : resolve());
+    const child = spawnProcess(options.launcher, [options.command, options.worker, options.root], {
+      cwd: options.root, env: options.env, detached: true, stdio: 'ignore', windowsHide: true
+    });
+    child.once('error', reject);
+    child.once('spawn', () => {
+      child.unref();
+      resolve();
+    });
   });
 }
 
