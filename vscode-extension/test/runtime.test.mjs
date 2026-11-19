@@ -29,6 +29,27 @@ test('only connection refused permits a new worker', async () => {
   await assert.rejects(probe(options, async () => { throw new Error('timeout'); }), /timeout/);
 });
 
+test('connection refused delegates worker startup to the native launcher', async () => {
+  let launched = 0;
+  let probes = 0;
+  const launchOptions = { ...options, launcher: 'kioku-launcher', command: 'bun.exe', worker: 'worker.cjs', mcp: 'mcp.cjs', root: '.', dataDir: '.', env: {} };
+  await ensureRuntime(launchOptions, {
+    existsSync: () => true,
+    launchWorker: async received => {
+      launched++;
+      assert.equal(received, launchOptions);
+    },
+    interval: 1,
+    fetch: async url => {
+      probes++;
+      if (probes === 1) throw new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } });
+      return Response.json(url.endsWith('/health') ? { version: launchOptions.version } : {});
+    }
+  });
+  assert.equal(launched, 1);
+  assert.equal(probes, 3);
+});
+
 test('all-in-one extension rejects a keyword-only shared worker without stopping it', async () => {
   const local = { ...options, requireLocalVectors: true };
   await assert.rejects(probe(local, async () => Response.json({ version: options.version })), /local vector search/);
