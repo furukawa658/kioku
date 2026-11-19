@@ -995,7 +995,8 @@ var init_SettingsDefaultsManager = __esm({
       // always the seeded value. A 'false' typed by hand reads the same and moves
       // too; typing it changed nothing while 'false' was the default. After this
       // one move, a 'false' saved by the "Keep images" switch or by hand stays.
-      { key: "CLAUDE_MEM_MEDIA_CAPTURE_ENABLED", legacy: "false", markerTag: "media-capture-default-on-v1", unit: "", applyOnlyWhenSaved: true }
+      { key: "CLAUDE_MEM_MEDIA_CAPTURE_ENABLED", legacy: "false", markerTag: "media-capture-default-on-v1", unit: "", applyOnlyWhenSaved: true },
+      { key: "CLAUDE_MEM_OBSERVER_MAX_CONVERSATION_CHARS", legacy: "400000", markerTag: "observer-max-conversation-chars-v1", unit: " chars", applyOnlyWhenSaved: false }
     ];
     raisedDefaultFailuresReported = /* @__PURE__ */ new Set();
     SettingsDefaultsManager = class {
@@ -1015,6 +1016,9 @@ var init_SettingsDefaultsManager = __esm({
         CLAUDE_MEM_WORKER_HOST: "127.0.0.1",
         CLAUDE_MEM_WORKER_URL: "",
         CLAUDE_MEM_WORKER_INGEST_TOKEN: "",
+        CLAUDE_MEM_LOCAL_API_TOKEN: "",
+        CLAUDE_MEM_LINE_ANCHORS_ENABLED: "false",
+        CLAUDE_MEM_CORPUS_AGENT: "",
         CLAUDE_MEM_WORKER_INGEST_MAX_BYTES: "5242880",
         CLAUDE_MEM_HOOK_SPOOL_TRANSPORT: "auto",
         CLAUDE_MEM_ALLOWED_ORIGINS: "",
@@ -1180,8 +1184,7 @@ var init_SettingsDefaultsManager = __esm({
         CLAUDE_MEM_CODEX_SUBAGENT_INGESTION: "false",
         CLAUDE_MEM_MAX_CONCURRENT_AGENTS: "2",
         // Max concurrent Claude SDK agent subprocesses
-        CLAUDE_MEM_OBSERVER_MAX_CONVERSATION_CHARS: "400000",
-        // Retire an observer conversation past this size and start a fresh generation (#3800)
+        CLAUDE_MEM_OBSERVER_MAX_CONVERSATION_CHARS: "100000",
         CLAUDE_MEM_OBSERVER_THINKING: "disabled",
         // Observer thinking param: 'disabled' (shipped) | 'adaptive' | 'enabled[:budget]' | 'omit' — an always-thinking gateway upstream rejects 'disabled' with 400/1210 (#4732)
         CLAUDE_MEM_OBSERVER_CONTEXT_WINDOW: "",

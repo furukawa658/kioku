@@ -7,7 +7,7 @@ import { SessionSearch } from '../sqlite/SessionSearch.js';
 import { SessionStore } from '../sqlite/SessionStore.js';
 import type { ContextReadWorkerClient } from '../context/ContextReadWorkerClient.js';
 import { ChromaSync, type ChromaFallbackRowIds, type ChromaQueryProgress } from '../sync/ChromaSync.js';
-import { FormattingService, singleLineTitle } from './FormattingService.js';
+import { FormattingService, singleLineTitle, estimateObservationReadTokens } from './FormattingService.js';
 import { TimelineService } from './TimelineService.js';
 import type { TimelineItem } from './TimelineService.js';
 import type { ObservationSearchResult, SessionSummarySearchResult, UserPromptSearchResult } from '../sqlite/types.js';
@@ -283,8 +283,8 @@ export class SearchManager {
             }
 
             lines.push(`**${file}**`);
-            lines.push(`| ID | Time | T | Title | Tokens |`);
-            lines.push(`|----|------|---|-------|--------|`);
+            lines.push(`| ID | Time | T | Title | Read |`);
+            lines.push(`|----|------|---|-------|------|`);
 
             currentFile = file;
             tableOpen = true;
@@ -295,7 +295,7 @@ export class SearchManager {
 
           const time = formatTime(item.epoch);
           const title = singleLineTitle(obs.title || 'Untitled');
-          const tokens = estimateTokens(obs.narrative);
+          const tokens = estimateObservationReadTokens(obs);
 
           const showTime = time !== lastTime;
           const timeDisplay = showTime ? time : '"';
@@ -539,6 +539,18 @@ export class SearchManager {
       concepts,
       files,
     });
+    const searchSubject = query
+      ? `matching "${query}"`
+      : `for filters: ${[
+          ['project', options.project],
+          ['platformSource', options.platformSource],
+          ['obs_type', effectiveObsType],
+          ['concepts', concepts],
+          ['files', files],
+          ['dateStart', options.dateRange?.start],
+          ['dateEnd', options.dateRange?.end],
+        ].filter(([, value]) => value !== undefined && value !== null && value !== '')
+          .map(([name, value]) => `${name}=${Array.isArray(value) ? value.join(',') : String(value)}`).join(', ')}`;
 
     const searchObservations = isCategoryRequested(category, 'observations');
     const searchSessions = isCategoryRequested(category, 'sessions');
@@ -754,10 +766,20 @@ export class SearchManager {
           }]
         };
       }
+      // A misspelt project is the usual cause of an empty scoped search; name the real ones.
+      let projectHint = '';
+      if (options.project && typeof (this.sessionStore as any).getProjectCatalog === 'function') {
+        try {
+          const known: string[] = (this.sessionStore as any).getProjectCatalog()?.projects ?? [];
+          if (known.length) projectHint = `\nProjects with memory: ${known.slice(0, 30).join(', ')}`;
+        } catch (error) {
+          logger.debug('SEARCH', 'Project catalog unavailable for empty-result hint', {}, error as Error);
+        }
+      }
       return {
         content: [{
           type: 'text' as const,
-          text: `No results found matching "${query}"`
+          text: `No results found ${searchSubject}${projectHint}`
         }]
       };
     }
@@ -807,8 +829,20 @@ export class SearchManager {
       { order: options.orderBy === 'date_desc' ? 'desc' : options.orderBy === 'date_asc' ? 'asc' : 'first-seen' }
     );
 
+    const projectCounts = new Map<string, number>();
+    for (const result of limitedResults) {
+      const name = typeof result.data?.project === 'string' && result.data.project ? result.data.project : '(unknown)';
+      projectCounts.set(name, (projectCounts.get(name) ?? 0) + 1);
+    }
+    const multiProject = projectCounts.size > 1;
+
     const lines: string[] = [];
-    lines.push(`Found ${totalResults} result(s) matching "${query}" (${observations.length} obs, ${sessions.length} sessions, ${prompts.length} prompts)`);
+    lines.push(`Found ${totalResults} result(s) ${searchSubject} (${observations.length} obs, ${sessions.length} sessions, ${prompts.length} prompts)`);
+    if (projectCounts.size) {
+      lines.push(multiProject
+        ? `Projects: ${[...projectCounts].map(([name, count]) => `${name} (${count})`).join(', ')}`
+        : `Project: ${[...projectCounts.keys()][0]}`);
+    }
     lines.push('');
 
     for (const [day, dayResults] of resultsByDate) {
@@ -821,6 +855,7 @@ export class SearchManager {
         if (result.type === 'observation') {
           file = extractFirstFile(result.data.files_modified, cwd, result.data.files_read);
         }
+        if (multiProject) file = `${file} · ${result.data?.project || '(unknown)'}`;
         if (!resultsByFile.has(file)) {
           resultsByFile.set(file, []);
         }

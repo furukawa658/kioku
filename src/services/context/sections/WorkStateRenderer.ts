@@ -126,6 +126,49 @@ export function renderWorkStateLines(entries: WorkStateEntry[], nowEpoch: WorkSt
     });
 }
 
+/** work_state_read folds a list whose latest write is older than this. */
+export const WORK_STATE_STALE_AFTER_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * The work_state_read text: open lists written within WORK_STATE_STALE_AFTER_MS
+ * in full, quieter lists named on one line so they do not bury current work.
+ * Returns null when nothing qualifies.
+ */
+export function renderWorkStateReadText(
+  entries: WorkStateEntry[],
+  nowEpoch: number,
+  options: { includeClosed: boolean; includeStale: boolean },
+): string | null {
+  if (options.includeStale || options.includeClosed) {
+    const lines = renderWorkStateLines(entries, nowEpoch, options.includeClosed);
+    return lines.length ? lines.join('\n') : null;
+  }
+  const byList = new Map<string, WorkStateEntry[]>();
+  for (const entry of entries) {
+    const key = JSON.stringify([(entry.scope_project ?? entry.project).toLowerCase(), entry.list_name]);
+    byList.set(key, [...(byList.get(key) ?? []), entry]);
+  }
+  const current: WorkStateEntry[] = [];
+  const stale: string[] = [];
+  for (const listEntries of byList.values()) {
+    const latest = Math.max(...listEntries.map(entry => entry.created_at_epoch));
+    if (nowEpoch - latest <= WORK_STATE_STALE_AFTER_MS) { current.push(...listEntries); continue; }
+    const lines = renderWorkStateList(listEntries[0].list_name, foldWorkStateList(listEntries), nowEpoch);
+    if (!lines.length) continue;
+    const open = Math.max(1, lines.length - 1);
+    stale.push(`${listEntries[0].list_name} (${open} open, ${updatedAgo(latest, nowEpoch)})`);
+  }
+  const keep = new Set(current);
+  const lines = renderWorkStateLines(entries.filter(entry => keep.has(entry)), nowEpoch);
+  if (!lines.length && !stale.length) return null;
+  const parts = lines.length ? [lines.join('\n')] : ['Nothing updated in the last 14 days is open.'];
+  if (stale.length) {
+    parts.push(`${stale.length} list${stale.length === 1 ? '' : 's'} not updated for 14+ days ${stale.length === 1 ? 'is' : 'are'} folded: ${stale.join(', ')}. `
+      + 'Read one with list="<name>", show all with includeStale=true, or close finished items with work_state_write.');
+  }
+  return parts.join('\n\n');
+}
+
 /**
  * Whether the SessionStart section shows this list. Goals lists (owner-goals
  * and its past months), My Rules and My Focus show in My Work; their quotes

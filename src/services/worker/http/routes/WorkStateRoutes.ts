@@ -19,6 +19,7 @@ import { isClosedWorkStateStatus } from '../../../work-view/work-state-status.mj
 import {
   fitWorkStateLines,
   renderWorkStateLines,
+  renderWorkStateReadText,
   WORK_STATE_SECTION_CHARACTER_LIMIT,
 } from '../../../context/sections/WorkStateRenderer.js';
 
@@ -156,11 +157,13 @@ export class WorkStateRoutes extends BaseRouteHandler {
       res.json({ version: 1, project: checkout.primary, projects: checkout.allProjects, list: list ?? null, entries });
       return;
     }
-    const lines = renderWorkStateLines(entries, Date.now(), includeClosed);
+    // A named list is always shown in full; an overview folds lists that have gone quiet.
+    const includeStale = list !== undefined || req.query.includeStale === 'true';
+    const text = renderWorkStateReadText(entries, Date.now(), { includeClosed, includeStale });
 
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    if (lines.length > 0) {
-      res.send(lines.join('\n'));
+    if (text !== null) {
+      res.send(text);
     } else if (includeClosed) {
       res.send(`Nothing recorded${list ? ` in "${list}"` : ''} for ${checkout.primary}.`);
     } else {

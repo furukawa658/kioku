@@ -2,7 +2,7 @@
   "name": "kioku-search",
   "displayName": "kioku",
   "description": "Long-term memory for AI coding agents. Save lessons from successes and failures, recall them across chats, and retire outdated notes. Offline search for Windows, macOS and Linux.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "icon": "media/brain.png",
   "publisher": "ShunsukeF",
   "license": "Apache-2.0",
