@@ -1,59 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" shape-rendering="crispEdges">
-  <rect width="256" height="256" rx="24" fill="#020817"/>
-  <g fill="none" stroke="#152d43" stroke-width="2">
-    <path d="M16 48H240M16 96H240M16 144H240M16 192H240"/>
-    <path d="M48 16V240M96 16V240M144 16V240M192 16V240"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <clipPath id="frame"><rect x="6" y="6" width="244" height="244" rx="48" /></clipPath>
+    <linearGradient id="sky" x1="128" y1="6" x2="128" y2="250" gradientUnits="userSpaceOnUse"><stop stop-color="#11162F" /><stop offset="0.38" stop-color="#4B315B" /><stop offset="0.66" stop-color="#C55D73" /><stop offset="0.84" stop-color="#F2A36D" /><stop offset="1" stop-color="#2B1B39" /></linearGradient>
+    <linearGradient id="lake" x1="128" y1="166" x2="128" y2="250" gradientUnits="userSpaceOnUse"><stop stop-color="#5B3E5D" /><stop offset="0.55" stop-color="#253552" /><stop offset="1" stop-color="#0A1020" /></linearGradient>
+    <linearGradient id="symbol" x1="72" y1="72" x2="184" y2="184" gradientUnits="userSpaceOnUse"><stop stop-color="#33E6D2" /><stop offset="0.52" stop-color="#E9FFF7" /><stop offset="1" stop-color="#FFB45C" /></linearGradient>
+    <filter id="glow" x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur stdDeviation="4" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect x="6" y="6" width="244" height="244" fill="url(#sky)" />
+    <circle cx="194" cy="108" r="29" fill="#FFD69A" opacity="0.13" /><circle cx="194" cy="108" r="13" fill="#FFE7B0" opacity="0.95" />
+    <g fill="#FFF1DC" opacity="0.68"><circle cx="54" cy="48" r="2" /><circle cx="88" cy="72" r="1.4" /><circle cx="144" cy="38" r="1.2" /><circle cx="220" cy="92" r="1.5" /><circle cx="36" cy="103" r="1.2" /></g>
+    <path d="M6 174 L62 112 L96 152 L142 90 L198 158 L250 116 V190 H6 Z" fill="#34243F" />
+    <path d="M44 174 L92 124 L126 174 M112 174 L158 122 L214 174" fill="#53344E" />
+    <path d="M142 90 L157 116 L144 110 L130 129 L120 118 Z M62 112 L75 132 L63 126 L51 141 L43 135 Z" fill="#F7C3A0" opacity="0.75" />
+    <rect x="6" y="174" width="244" height="76" fill="url(#lake)" />
+    <g stroke-linecap="round" opacity="0.78"><path d="M166 188 H216" stroke="#FFE4AD" stroke-width="3" /><path d="M158 202 H204" stroke="#D99599" stroke-width="2" /><path d="M24 218 H92" stroke="#7791AA" stroke-width="2" /></g>
+    <g filter="url(#glow)" stroke="url(#symbol)" stroke-width="5" stroke-linecap="round"><path d="M128 84 L82 112 L92 158 L128 184 L174 150 L182 106 L128 84 Z" /><path d="M82 112 L174 150 M182 106 L92 158 M128 84 L128 184" opacity="0.62" /></g>
+    <g fill="url(#symbol)" stroke="#F4FFF9" stroke-width="3"><circle cx="128" cy="84" r="9" /><circle cx="82" cy="112" r="9" /><circle cx="92" cy="158" r="9" /><circle cx="128" cy="184" r="9" /><circle cx="174" cy="150" r="9" /><circle cx="182" cy="106" r="9" /></g>
+    <circle cx="128" cy="136" r="18" fill="#151B32" stroke="url(#symbol)" stroke-width="8" /><circle cx="128" cy="136" r="5" fill="#F7FFF9" />
   </g>
-  <g fill="#8ee8ff">
-    <path d="M24 24H56V30H40V46H24Z"/>
-    <path d="M200 24H232V46H226V30H200Z"/>
-    <rect x="222" y="62" width="10" height="10"/>
-    <rect x="24" y="74" width="6" height="6"/>
-  </g>
-  <g fill="#2af59f">
-    <rect x="24" y="202" width="12" height="12"/>
-    <rect x="36" y="214" width="6" height="6"/>
-    <path d="M214 190H226V202H238V214H226V226H214V214H202V202H214Z"/>
-  </g>
-  <g fill="#b76cff">
-    <path d="M30 156H42V168H54V174H42V186H30V174H18V168H30Z"/>
-    <rect x="216" y="166" width="6" height="6"/>
-  </g>
-
-  <path d="M116 188H128V200H136V224H128V240H112V224H104V208H112V188Z" fill="#ff4fa7"/>
-  <path d="M116 48V40H104V32H80V40H64V48H48V64H40V88H32V144H40V168H48V184H72V192H112V184H120V48Z" fill="#081a2d" stroke="#2af59f" stroke-width="8"/>
-  <path d="M136 48V40H148V32H176V40H192V48H208V64H216V88H224V144H216V168H208V184H184V192H144V184H136V48Z" fill="#081a2d" stroke="#43d9ff" stroke-width="8"/>
-
-  <g fill="none" stroke-linecap="square" stroke-linejoin="miter">
-    <path d="M104 48H80V56H64V72H56V88H72V104H88V112" stroke="#2af59f" stroke-width="8"/>
-    <path d="M112 64H96V80H88V96H104V112H112" stroke="#72f7ae" stroke-width="8"/>
-    <path d="M48 120H64V136H48V152H72V168H88V176H104" stroke="#1dd9a1" stroke-width="8"/>
-    <path d="M96 128H80V144H72V160H88V176H112" stroke="#43d9ff" stroke-width="8"/>
-    <path d="M152 48H176V56H192V72H200V88H184V104H168V112" stroke="#43d9ff" stroke-width="8"/>
-    <path d="M144 64H160V80H168V96H152V112H144" stroke="#7ee9ff" stroke-width="8"/>
-    <path d="M208 120H192V136H208V152H184V168H168V176H152" stroke="#7a8cff" stroke-width="8"/>
-    <path d="M160 128H176V144H184V160H168V176H144" stroke="#b76cff" stroke-width="8"/>
-  </g>
-
-  <path d="M120 40H136V80H144V104H136V136H128V168H120V200H104V168H112V136H104V112H112V80H120Z" fill="#050a18"/>
-  <path d="M128 32H144V64H136V88H152V96H136V120H144V128H128V160H136V168H112V144H120V120H112V112H120V88H112V80H128Z" fill="#f4f7ff"/>
-  <path d="M136 104H152V120H136Z" fill="#ff4fa7"/>
-
-  <g fill="#ffffff">
-    <rect x="56" y="72" width="8" height="8"/>
-    <rect x="88" y="48" width="8" height="8"/>
-    <rect x="192" y="72" width="8" height="8"/>
-    <rect x="160" y="48" width="8" height="8"/>
-  </g>
-  <g fill="none" stroke="#5fd5ff" stroke-width="4">
-    <path d="M16 112H40M216 112H240M80 208V232H56"/>
-    <path d="M208 128V152H232"/>
-  </g>
-  <g fill="#050a18" stroke="#ff4fa7" stroke-width="3">
-    <rect x="12" y="108" width="10" height="10"/>
-    <rect x="236" y="108" width="10" height="10"/>
-    <rect x="52" y="228" width="10" height="10"/>
-    <rect x="228" y="148" width="10" height="10"/>
-  </g>
-  <rect x="8" y="8" width="240" height="240" rx="20" fill="none" stroke="#31516c" stroke-width="2"/>
+  <rect x="6" y="6" width="244" height="244" rx="48" stroke="#A85D7A" stroke-width="3" /><rect x="13" y="13" width="230" height="230" rx="41" stroke="#E4FFF2" stroke-opacity="0.18" />
 </svg>
