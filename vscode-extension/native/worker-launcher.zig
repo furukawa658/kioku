@@ -9,7 +9,7 @@ pub fn main(init: std.process.Init) !void {
         args[2],
         "--daemon",
     };
-    _ = try std.process.spawn(init.io, .{
+    var child = try std.process.spawn(init.io, .{
         .argv = &worker_args,
         .cwd = .{ .path = args[3] },
         .stdin = .ignore,
@@ -17,4 +17,7 @@ pub fn main(init: std.process.Init) !void {
         .stderr = .ignore,
         .create_no_window = true,
     });
+    if (@import("builtin").os.tag == .windows) {
+        _ = try child.wait(init.io);
+    }
 }
