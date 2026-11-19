@@ -52,9 +52,14 @@ const target = entries.get('extension.vsixmanifest').toString().match(/TargetPla
 assert.ok(['win32-x64', 'darwin-x64', 'darwin-arm64', 'linux-x64', 'linux-arm64'].includes(target), `Unexpected target ${target}`);
 const [os, arch] = target.split('-');
 const bunFile = os === 'win32' ? 'runtime/bun.exe' : 'runtime/bun';
-const magic = entries.get(`extension/${bunFile}`).subarray(0, 4);
+const launcherFile = os === 'win32' ? 'runtime/kioku-worker-launcher.exe' : 'runtime/kioku-worker-launcher';
 const magics = { win32: ['4d5a'], linux: ['7f454c46'], darwin: ['cffaedfe', 'cafebabe', 'bebafeca'] };
-assert.ok(magics[os].some(hex => magic.toString('hex').startsWith(hex)), `Unexpected bun binary header for ${target}`);
+for (const binary of [bunFile, launcherFile]) {
+  const entry = entries.get(`extension/${binary}`);
+  assert.ok(entry, `Missing ${binary}`);
+  const magic = entry.subarray(0, 4);
+  assert.ok(magics[os].some(hex => magic.toString('hex').startsWith(hex)), `Unexpected ${binary} binary header for ${target}`);
+}
 assert.ok(entries.has(`extension/runtime/node_modules/onnxruntime-node/bin/napi-v6/${os}/${arch.replace('x64', 'x64')}/onnxruntime_binding.node`), `Missing onnxruntime binding for ${target}`);
 for (const file of entries.keys()) {
   const other = file.match(/onnxruntime-node\/bin\/napi-v6\/([a-z0-9]+)\/([a-z0-9]+)\//);

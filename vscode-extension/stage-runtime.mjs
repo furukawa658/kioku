@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stageSemantic, download } from './stage-semantic.mjs';
+import { buildWorkerLauncher } from './native/build-launcher.mjs';
 
 const extension = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.dirname(extension);
@@ -14,6 +15,8 @@ if (!supported.includes(`${process.platform}-${process.arch}`)) throw new Error(
 const windows = process.platform === 'win32';
 await mkdir(path.join(runtime, 'scripts'), { recursive: true });
 await mkdir(path.join(runtime, 'licenses'), { recursive: true });
+console.log(`Building native worker launcher`);
+await buildWorkerLauncher();
 // Bunはネイティブバイナリのため、ビルドしたOSと同じ実行環境向けのVSIXになる
 const bun = process.env.KIOKU_BUN_EXE || execFileSync(windows ? 'where.exe' : 'which', [windows ? 'bun.exe' : 'bun'], { encoding: 'utf8' }).trim().split(/\r?\n/)[0];
 const bunVersion = execFileSync(bun, ['--version'], { encoding: 'utf8' }).trim();

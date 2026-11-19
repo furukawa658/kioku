@@ -44,7 +44,8 @@ function runtimeOptions(extensionPath, configured = '', env = process.env) {
   };
   return {
     root, dataDir, url: url.origin, command: path.join(root, process.platform === 'win32' ? 'bun.exe' : 'bun'), requireLocalVectors: true,
-    worker, mcp: path.join(root, 'scripts', 'mcp-server.cjs'),
+    worker, launcher: path.join(root, process.platform === 'win32' ? 'kioku-worker-launcher.exe' : 'kioku-worker-launcher'),
+    mcp: path.join(root, 'scripts', 'mcp-server.cjs'),
     version: JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version,
     overrides, env: { ...env, ...overrides }
   };
@@ -67,35 +68,53 @@ async function probe(options, request = fetch) {
   }
 }
 
+function launchWorker(options, spawnProcess = spawn) {
+  return new Promise((resolve, reject) => {
+    const child = spawnProcess(options.launcher, [options.command, options.worker, options.root], {
+      cwd: options.root, env: options.env, detached: true, stdio: 'ignore', windowsHide: true
+    });
+    child.once('error', reject);
+    child.once('spawn', () => {
+      child.unref();
+      resolve();
+    });
+  });
+}
+
 async function ensureRuntime(options, deps = {}) {
   const request = deps.fetch || fetch;
+  const exists = deps.existsSync || fs.existsSync;
   const running = await probe(options, request);
   if (running) return;
-  let child;
-  let spawnError;
+  let launched = false;
   if (running === undefined) {
-    for (const file of [options.command, options.worker, options.mcp]) {
-      if (!fs.existsSync(file)) throw new Error(`Missing bundled runtime: ${path.basename(file)}`);
+    for (const file of [options.launcher, options.command, options.worker, options.mcp]) {
+      if (!exists(file)) throw new Error(`Missing bundled runtime: ${path.basename(file)}`);
     }
     fs.mkdirSync(options.dataDir, { recursive: true });
-    child = (deps.spawn || spawn)(options.command, [options.worker, '--daemon'], {
-      cwd: options.root, env: options.env, windowsHide: true, detached: true, stdio: 'ignore'
-    });
-    child.on('error', error => { spawnError = error; });
-    child.unref();
+    await (deps.launchWorker || launchWorker)(options);
+    launched = true;
   }
   const deadline = Date.now() + (deps.timeout ?? 60000);
+  const retryInterval = deps.retryInterval ?? 5000;
+  let lastLaunch = Date.now();
   while (Date.now() < deadline) {
-    if (spawnError) throw spawnError;
+    let unavailable = false;
     try {
-      if (await probe(options, request)) return;
+      const state = await probe(options, request);
+      if (state) return;
+      unavailable = state === undefined;
     } catch (error) {
       const starting = error.name === 'TimeoutError' || ['ECONNRESET', 'UND_ERR_SOCKET'].includes(error.cause?.code);
-      if (!starting || !child) throw error;
+      if (!starting || !launched) throw error;
+    }
+    if (launched && unavailable && Date.now() - lastLaunch >= retryInterval) {
+      await (deps.launchWorker || launchWorker)(options);
+      lastLaunch = Date.now();
     }
     await new Promise(resolve => setTimeout(resolve, deps.interval ?? 250));
   }
   throw new Error('kioku worker did not become ready. See the logs in the personal data directory.');
 }
 
-module.exports = { runtimeOptions, ensureRuntime, probe };
+module.exports = { runtimeOptions, ensureRuntime, probe, launchWorker };
