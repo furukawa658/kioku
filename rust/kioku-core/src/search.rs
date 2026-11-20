@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use rusqlite::types::Value;
-use rusqlite::{Connection, OpenFlags, Row, params_from_iter};
+use rusqlite::{Connection, OpenFlags, Row, TransactionBehavior, params, params_from_iter};
 use serde_json::{Map, Value as JsonValue, json};
 
 pub fn default_database_path() -> PathBuf {
@@ -29,6 +30,129 @@ pub fn open_read_only(path: &PathBuf) -> Result<Connection> {
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .with_context(|| format!("Cannot open kioku database at {}", path.display()))
+}
+
+pub fn invalidate_memory(path: &PathBuf, arguments: &JsonValue) -> Result<JsonValue> {
+    let arguments = arguments
+        .as_object()
+        .context("arguments must be an object")?;
+    if let Some(key) = arguments
+        .keys()
+        .find(|key| !["id", "reason", "replacedBy", "restore"].contains(&key.as_str()))
+    {
+        anyhow::bail!("Unknown invalidate_memory argument: {key}");
+    }
+    let id = arguments
+        .get("id")
+        .and_then(JsonValue::as_i64)
+        .filter(|value| *value > 0)
+        .context("id must be a positive integer")?;
+    let reason = match arguments.get("reason") {
+        Some(value) => Some(value.as_str().context("reason must be a string")?.trim()),
+        None => None,
+    }
+    .filter(|value| !value.is_empty());
+    let replaced_by = match arguments.get("replacedBy") {
+        Some(value) => Some(
+            value
+                .as_i64()
+                .filter(|value| *value > 0)
+                .context("replacedBy must be a positive integer")?,
+        ),
+        None => None,
+    };
+    let restore = match arguments.get("restore") {
+        Some(value) => value.as_bool().context("restore must be a boolean")?,
+        None => false,
+    };
+
+    let mut connection = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .with_context(|| format!("Cannot open kioku database at {}", path.display()))?;
+    connection.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS invalidated_observations (
+            observation_id INTEGER PRIMARY KEY,
+            reason TEXT,
+            replaced_by INTEGER,
+            invalidated_at_epoch INTEGER NOT NULL
+        )
+        "#,
+    )?;
+
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let exists = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM observations WHERE id = ?)",
+        [id],
+        |row| row.get::<_, i64>(0),
+    )? != 0;
+    if !exists {
+        return Ok(json!({
+            "success": false,
+            "id": id,
+            "invalidated": false,
+            "message": format!("Observation #{id} not found")
+        }));
+    }
+
+    if restore {
+        transaction.execute(
+            "DELETE FROM invalidated_observations WHERE observation_id = ?",
+            [id],
+        )?;
+        transaction.commit()?;
+        return Ok(json!({
+            "success": true,
+            "id": id,
+            "invalidated": false,
+            "message": format!("Observation #{id} is searchable again")
+        }));
+    }
+
+    if let Some(replaced_by) = replaced_by
+        && replaced_by != id
+    {
+        let replacement_exists = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM observations WHERE id = ?)",
+            [replaced_by],
+            |row| row.get::<_, i64>(0),
+        )? != 0;
+        if !replacement_exists {
+            return Ok(json!({
+                "success": false,
+                "id": id,
+                "invalidated": false,
+                "message": format!("Replacement observation #{replaced_by} not found")
+            }));
+        }
+    }
+
+    let invalidated_at_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("System clock is before the Unix epoch")?
+        .as_millis() as i64;
+    transaction.execute(
+        r#"
+        INSERT INTO invalidated_observations (
+            observation_id, reason, replaced_by, invalidated_at_epoch
+        ) VALUES (?1, ?2, ?3, ?4)
+        ON CONFLICT(observation_id) DO UPDATE SET
+            reason = excluded.reason,
+            replaced_by = excluded.replaced_by,
+            invalidated_at_epoch = excluded.invalidated_at_epoch
+        "#,
+        params![id, reason, replaced_by, invalidated_at_epoch],
+    )?;
+    transaction.commit()?;
+
+    Ok(json!({
+        "success": true,
+        "id": id,
+        "invalidated": true,
+        "message": format!("Observation #{id} no longer appears in search results")
+    }))
 }
 
 pub fn search(path: &PathBuf, arguments: &JsonValue) -> Result<JsonValue> {
@@ -825,6 +949,125 @@ mod tests {
         let result = search(&path, &json!({"query":"設定項目", "project":"kioku"}))
             .expect("search Japanese fixture");
         assert_eq!(result["observations"][0]["id"], 2);
+    }
+
+    #[test]
+    fn invalidates_and_restores_memory_without_the_worker() {
+        let (_directory, path) = fixture();
+        let invalidated_at_or_after = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("current epoch")
+            .as_millis() as i64;
+
+        let result = invalidate_memory(
+            &path,
+            &json!({"id":2,"reason":"  superseded  ","replacedBy":3}),
+        )
+        .expect("invalidate memory");
+        assert_eq!(result["success"], true);
+        assert_eq!(result["invalidated"], true);
+
+        let connection = Connection::open(&path).expect("inspect invalidation");
+        let stored = connection
+            .query_row(
+                "SELECT reason, replaced_by, invalidated_at_epoch FROM invalidated_observations WHERE observation_id = 2",
+                [],
+                |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<i64>>(1)?, row.get::<_, i64>(2)?)),
+            )
+            .expect("stored invalidation");
+        assert_eq!(stored.0.as_deref(), Some("superseded"));
+        assert_eq!(stored.1, Some(3));
+        assert!(stored.2 >= invalidated_at_or_after);
+        drop(connection);
+
+        invalidate_memory(
+            &path,
+            &json!({"id":2,"reason":"replacement changed","replacedBy":1}),
+        )
+        .expect("reinvalidate memory");
+        let connection = Connection::open(&path).expect("inspect reinvalidation");
+        let updated = connection
+            .query_row(
+                "SELECT reason, replaced_by, COUNT(*) FROM invalidated_observations WHERE observation_id = 2",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .expect("updated invalidation");
+        assert_eq!(updated.0.as_deref(), Some("replacement changed"));
+        assert_eq!(updated.1, Some(1));
+        assert_eq!(updated.2, 1);
+        drop(connection);
+
+        let hidden = search(
+            &path,
+            &json!({"query":"FetchUserProfileAsync","project":"kioku"}),
+        )
+        .expect("search invalidated memory");
+        assert!(
+            hidden["observations"]
+                .as_array()
+                .expect("observations")
+                .is_empty()
+        );
+
+        let restored =
+            invalidate_memory(&path, &json!({"id":2,"restore":true})).expect("restore memory");
+        assert_eq!(restored["success"], true);
+        assert_eq!(restored["invalidated"], false);
+        let visible = search(
+            &path,
+            &json!({"query":"FetchUserProfileAsync","project":"kioku"}),
+        )
+        .expect("search restored memory");
+        assert_eq!(visible["observations"][0]["id"], 2);
+    }
+
+    #[test]
+    fn rejects_missing_observations_and_replacements() {
+        let (_directory, path) = fixture();
+
+        let missing =
+            invalidate_memory(&path, &json!({"id":999})).expect("missing observation result");
+        assert_eq!(missing["success"], false);
+        assert_eq!(missing["invalidated"], false);
+
+        let missing_replacement = invalidate_memory(&path, &json!({"id":2,"replacedBy":999}))
+            .expect("missing replacement result");
+        assert_eq!(missing_replacement["success"], false);
+        assert_eq!(missing_replacement["invalidated"], false);
+        let connection = Connection::open(&path).expect("inspect failed invalidation");
+        let invalidation_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM invalidated_observations WHERE observation_id = 2",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("invalidation count");
+        assert_eq!(invalidation_count, 0);
+    }
+
+    #[test]
+    fn rejects_invalid_invalidation_arguments() {
+        let (_directory, path) = fixture();
+        for arguments in [
+            json!({"id":"2"}),
+            json!({"id":0}),
+            json!({"id":2,"reason":null}),
+            json!({"id":2,"restore":"true"}),
+            json!({"id":2,"replacedBy":0}),
+            json!({"id":2,"unknown":true}),
+        ] {
+            assert!(
+                invalidate_memory(&path, &arguments).is_err(),
+                "invalid arguments should fail: {arguments}"
+            );
+        }
     }
 
     #[test]

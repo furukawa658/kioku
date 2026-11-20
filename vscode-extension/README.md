@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/furukawa658/kioku/main/vscode-extension/media/brain.png" alt="kioku icon" width="128" height="128">
-</p>
-
 # kioku
 
 **Stop your AI agent from making the same mistake twice.**
@@ -119,7 +115,7 @@ Run `vsce package --target <target> --no-dependencies --allow-missing-repository
 
 For a host-native single executable, run `npm run build:cli-binary` from the repository root and keep its generated `dist/binaries/package.json`, lock file, and `node_modules` beside the executable. That package installs the native `sqlite-vec` platform extension and the optional media sidecar. The VSIX keeps the executable separate because adding both the compiled worker and bundled Bun runtime would exceed the Marketplace package limit.
 
-The staged Rust MCP core is available with `npm run build:rust-mcp`. Set `KIOKU_RUST_MCP_EXE` to the generated `rust/target/release/kioku-core.exe` (or the host-specific executable on macOS/Linux) before starting VS Code. The Rust process reads `timeline` and `get_observations` directly from the existing `claude-mem.db`. `search` combines local SQLite FTS candidates with semantic candidates from the existing kioku worker by reciprocal-rank fusion; if the worker is unavailable, it falls back to local FTS. Pass `semantic: false` to force the local-only path. Write and work-state calls remain delegated to the existing worker. The switch is opt-in and leaves the bundled Bun MCP path unchanged by default.
+The staged Rust MCP core is available with `npm run build:rust-mcp`. Set `KIOKU_RUST_MCP_EXE` to the generated `rust/target/release/kioku-core.exe` (or the host-specific executable on macOS/Linux) before starting VS Code. The Rust process reads `dumb_search`, `timeline`, and `get_observations` directly from the existing `claude-mem.db`, and it handles `invalidate_memory` directly in that database. `search` combines local SQLite FTS candidates with semantic candidates from the existing kioku worker by reciprocal-rank fusion; if the worker is unavailable, it falls back to local FTS. Pass `semantic: false` to force the local-only path. `save_memory` and work-state calls remain delegated to the existing worker. The switch is opt-in and leaves the bundled Bun MCP path unchanged by default.
 
 ## Acknowledgments and license
 
