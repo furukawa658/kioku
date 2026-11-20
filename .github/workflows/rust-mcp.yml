@@ -1,0 +1,65 @@
+name: Rust MCP
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'rust/**'
+      - '.github/workflows/rust-mcp.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'rust/**'
+      - '.github/workflows/rust-mcp.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.artifact }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2022, artifact: kioku-core-win32-x64, executable: rust/target/release/kioku-core.exe }
+          - { os: macos-15-intel, artifact: kioku-core-darwin-x64, executable: rust/target/release/kioku-core }
+          - { os: macos-latest, artifact: kioku-core-darwin-arm64, executable: rust/target/release/kioku-core }
+          - { os: ubuntu-latest, artifact: kioku-core-linux-x64, executable: rust/target/release/kioku-core }
+          - { os: ubuntu-24.04-arm, artifact: kioku-core-linux-arm64, executable: rust/target/release/kioku-core }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Test
+        run: cargo test --manifest-path rust/Cargo.toml --locked --workspace --all-targets
+
+      - name: Clippy
+        run: cargo clippy --manifest-path rust/Cargo.toml --locked --workspace --all-targets -- -D warnings
+
+      - name: Build release binary
+        run: cargo build --manifest-path rust/Cargo.toml --locked --release --package kioku-core
+
+      - name: Smoke MCP initialize
+        shell: bash
+        env:
+          KIOKU_CORE_EXE: ${{ matrix.executable }}
+        run: |
+          response=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' | "$KIOKU_CORE_EXE")
+          printf '%s\n' "$response"
+          [[ "$response" == *'"serverInfo":{"name":"kioku-rust"'* ]]
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.executable }}
+          if-no-files-found: error
+          retention-days: 14
