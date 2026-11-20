@@ -290,8 +290,17 @@ export class DataRoutes extends BaseRouteHandler {
       return;
     }
 
+    const hasInvalidationTable = store.db.query(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'invalidated_observations'",
+    ).get();
+    const invalidation = hasInvalidationTable ? store.db.query(`SELECT reason, replaced_by, invalidated_at_epoch
+      FROM invalidated_observations WHERE observation_id = ?`).get(id) as {
+        reason: string | null; replaced_by: number | null; invalidated_at_epoch: number;
+      } | null : null;
     // Same media projection as the paged feed and SSE (media/feed.ts).
-    res.json(withObservationMedia(observation, true));
+    res.json({ ...withObservationMedia(observation, true), invalidated: !!invalidation,
+      invalidation: invalidation ? { reason: invalidation.reason, replacedBy: invalidation.replaced_by,
+        invalidatedAtEpoch: invalidation.invalidated_at_epoch } : null });
   });
 
   private handleGetObservationsByFile = this.wrapHandler((req: Request, res: Response): void => {

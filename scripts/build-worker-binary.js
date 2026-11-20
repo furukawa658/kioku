@@ -43,7 +43,7 @@ try {
   ], { stdio: 'inherit' });
   fs.writeFileSync(`${outDir}/package.json`, JSON.stringify({
     name: 'claude-mem-worker-native-runtime', private: true,
-    dependencies: { sharp: packageJson.dependencies.sharp },
+    dependencies: { sharp: packageJson.dependencies.sharp, 'sqlite-vec': packageJson.devDependencies['sqlite-vec'] },
   }, null, 2) + '\n');
   execFileSync(npm, ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'], {
     cwd: outDir, stdio: 'inherit', shell: process.platform === 'win32',

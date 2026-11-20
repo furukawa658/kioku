@@ -577,13 +577,14 @@ const tools: McpToolDefinition[] = [
         outcome: { type: 'string', enum: [...MEMORY_OUTCOMES], description: 'How the work behind this note ended.' },
         cause: { type: 'string', description: 'Why it succeeded or failed. State a verified cause; say so when it is still a guess.' },
         lesson: { type: 'string', description: 'What to do or avoid next time, and the conditions under which that applies.' },
+        supersedes: { type: 'integer', minimum: 1, description: 'Observation ID this note replaces. The old note is invalidated in the same save transaction.' },
       },
       required: ['text'],
       additionalProperties: false,
     },
     handler: async (args: any) => {
       if (selectRuntime() === 'server') return mcpTextResult('save_memory requires worker runtime. To save a note in the selected server, use observation_add with content and optional projectId.', true);
-      return callWorker('/api/memory/save', { body: { ...args, project: args?.project || currentCheckout().primary } });
+      return callWorker('/api/memory/save', { body: { ...args, cwd: getRequestCwd(), project: args?.project || currentCheckout().primary } });
     },
   },
   {

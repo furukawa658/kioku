@@ -25,7 +25,7 @@ Install one VSIX. Everything runs locally and offline. Searching works in Englis
 
 3. Open a new chat and ask: `Check kioku for lessons before I package a VSIX.` The agent finds the lesson saved in the first chat.
 
-To make the agent search and save lessons without being asked, add this to your project's `.github/copilot-instructions.md` or to your user instructions:
+To make the agent search and save lessons without being asked, run **kioku: Inject Copilot Instructions** from the Command Palette or the sidebar. The command updates only the marker-delimited kioku block in the project's `.github/copilot-instructions.md` or your global instructions file. The injected block is:
 
 ```markdown
 ## Long-term memory (kioku)
@@ -48,7 +48,7 @@ To make the agent search and save lessons without being asked, add this to your 
 - **Lesson fields.** `save_memory` accepts `outcome`, `cause` and `lesson`, and `search` can select lessons with `concepts="lesson"`. The tool instructions ask the agent to record the cause and the lesson, not only progress or results.
 - **A compact MCP surface.** The extension exposes eight tools (`search`, `timeline`, `get_observations`, `save_memory`, `invalidate_memory`, `dumb_search`, `work_state_read`, `work_state_write`) with short instructions to keep the agent's context small.
 - **Summaries without AI credits.** A local script makes an extractive summary. Summarizing with GitHub Copilot is an explicit opt-in.
-- **A small sidebar** to browse and read saved memories. It is a viewer; the value is in the lessons the agent saves and reuses.
+- **A compact sidebar** to browse memories, edit `project`/`cause`/`lesson`, invalidate or restore records, inspect Work State, and install agent instructions without AI-tool calls.
 
 This extension supports Windows x64, macOS (Intel and Apple silicon) and Linux (x64 and arm64), and requires VS Code 1.102 or later. PostgreSQL is not required. Saving and searching work offline, and no model is downloaded at first use.
 
@@ -59,7 +59,7 @@ This extension supports Windows x64, macOS (Intel and Apple silicon) and Linux (
 3. Open the kioku brain icon on the activity bar. If the worker is not running, the bundled version starts. On first launch, wait for database initialization. A memory count of 0 is normal for a new user.
 4. In Copilot Chat's MCP list, start "kioku (local)" and allow access in the VS Code confirmation prompt.
 
-If you already have a manually configured kioku MCP server, disable the manual configuration before using the bundled version. Do not register the same functionality twice. The extension never deletes or overwrites existing MCP configuration files.
+If you already have a manually configured kioku MCP server, disable the manual configuration before using the bundled version. Do not register the same functionality twice. Run **kioku: Copy MCP Configuration** to copy a Cursor or Claude Code compatible `.mcp.json` entry that uses the bundled runtime and the same local database. The extension never deletes or overwrites existing MCP configuration files.
 
 ## Language
 
@@ -75,11 +75,13 @@ Save one topic per memory. Include the conditions and concrete names needed to a
 
 Use `invalidate_memory({id, reason, replacedBy})` when a saved observation is outdated or incorrect. It is retained for reference but excluded from search. Set `restore: true` to make it searchable again. This is not deletion of the stored content.
 
-Use the kioku brain icon to search by keywords, project, start date, and end date. Up to 50 results are displayed; selecting a result shows the body and facts. The view also displays connection status and the total memory count. There is no delete action in the UI.
+Use the kioku brain icon to search by keywords, project, start date, and end date. Up to 50 results are displayed; selecting a result shows the body and facts. The detail pane edits the project, cause, and lesson, and can invalidate or restore the selected memory. The Work State section reads the active checkout and closes open entries by appending `done` records without deleting history.
 
-The bundled version uses agent-invoked saving and SQLite search. It combines keyword search with semantic search using vectors stored in SQLite, computing similarity inside the worker. A multilingual embedding model (including Japanese support) runs locally on your PC without sending search queries or memories to external servers. An index is built from stored memories on the first search; thereafter, embeddings are recalculated only for memories whose content has changed. Initial search indexing time depends on the number of memories.
+The bundled version uses agent-invoked saving and SQLite search. It combines FTS5 keyword ranking with semantic search through reciprocal-rank fusion, and computes similarity inside the worker. A multilingual embedding model (including Japanese support) runs locally on your PC without sending search queries or memories to external servers. Stored vectors include a 1-bit signature for large-candidate prefiltering. The worker builds missing vectors in the background at startup and after saves; edited content is reindexed when next needed. Initial search indexing time depends on the number of memories.
 
 Automatic conversation harvesting, observation by external AI, Chroma, cloud synchronization, telemetry, and automatic updates are disabled at startup. This extension does not automatically record complete chat transcripts. Authentication and code analysis designed for shared servers are not used. The header displays the extension version; the internal worker version can be checked in the connection tooltip.
+
+Run **kioku: Export Project Lessons** to write active `lesson` memories for one project as JSONL or Markdown. Run **kioku: Import Project Lessons** to load either format. Imports carry a source fingerprint, so importing the same file again skips existing records. Export excludes invalidated memories.
 
 ## Summaries
 
@@ -114,6 +116,8 @@ node vscode-extension/test/integrated-smoke.mjs
 ```
 
 Run `vsce package --target <target> --no-dependencies --allow-missing-repository` in the extension folder, where `<target>` is `win32-x64`, `darwin-x64`, `darwin-arm64`, `linux-x64` or `linux-arm64`. Then run `node test/package-content.mjs <vsix>`. SHA-256 hashes of bundled runtime files are listed in `runtime/integrity.json`; licenses and notices are included in `runtime/licenses` and `runtime/THIRD-PARTY-NOTICES.txt`. The license for the Lucide toolbar icons is in `media/lucide-license.txt`.
+
+For a host-native single executable, run `npm run build:cli-binary` from the repository root and keep its generated `dist/binaries/package.json`, lock file, and `node_modules` beside the executable. That package installs the native `sqlite-vec` platform extension and the optional media sidecar. The VSIX keeps the executable separate because adding both the compiled worker and bundled Bun runtime would exceed the Marketplace package limit.
 
 ## Acknowledgments and license
 

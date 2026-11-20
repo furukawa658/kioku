@@ -50,6 +50,39 @@ test('overview and detail use existing read endpoints', async () => {
   assert.equal(paths.length, 3);
 });
 
+test('mutation endpoints use bounded local POST requests', async () => {
+  const requests = [];
+  const client = new KiokuClient('http://localhost', async (url, options) => {
+    requests.push({ path: url.pathname, options });
+    return Response.json({ success: true, invalidated: url.pathname.endsWith('/invalidate') });
+  });
+  await client.editMemory(7, { project: 'kioku', lesson: 'Verify the result.' });
+  await client.invalidateMemory(7, { restore: true });
+  assert.deepEqual(requests.map(request => request.path), ['/api/memory/edit', '/api/memory/invalidate']);
+  assert.equal(requests[0].options.method, 'POST');
+  assert.equal(JSON.parse(requests[0].options.body).id, 7);
+  assert.equal(requests[0].options.headers['Content-Type'], 'application/json');
+  assert.equal(requests.every(request => request.options.signal instanceof AbortSignal), true);
+});
+
+test('lesson export and import use the selected project and portable format', async () => {
+  const calls = [];
+  const client = new KiokuClient('http://localhost', async (url, options) => {
+    calls.push({ url, options });
+    return url.pathname === '/api/memory/export'
+      ? new Response('{"kind":"kioku.lesson"}\n', { status: 200 })
+      : Response.json({ imported: 1, duplicates: 0 });
+  });
+  const text = await client.exportLessons('release', 'jsonl');
+  const imported = await client.importLessons('release', 'jsonl', text);
+  assert.equal(text, '{"kind":"kioku.lesson"}\n');
+  assert.deepEqual(imported, { imported: 1, duplicates: 0 });
+  assert.equal(calls[0].url.searchParams.get('project'), 'release');
+  assert.equal(calls[0].url.searchParams.get('format'), 'jsonl');
+  assert.equal(calls[0].options.method, 'GET');
+  assert.equal(JSON.parse(calls[1].options.body).project, 'release');
+});
+
 test('HTTP errors and malformed responses are visible', async () => {
   const failed = new KiokuClient('http://localhost', async () => new Response('', { status: 503 }));
   await assert.rejects(failed.search({ query: 'x' }), /503/);

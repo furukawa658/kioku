@@ -26,7 +26,7 @@ await new Promise((resolve, reject) => {
   });
 });
 for (const name of ['runtime/scripts/worker-service.cjs', 'runtime/scripts/mcp-server.cjs', 'runtime/modes/code.json', 'runtime/licenses/bun-LICENSE.md', 'runtime/THIRD-PARTY-NOTICES.txt', 'runtime.cjs', 'mcp-provider.cjs', 'out/data-dir.cjs',
-  'runtime/semantic/transformers.mjs', 'runtime/models/Xenova/multilingual-e5-small/onnx/model_quantized.onnx',
+  'runtime/node_modules/sqlite-vec/index.cjs', 'runtime/semantic/transformers.mjs', 'runtime/models/Xenova/multilingual-e5-small/onnx/model_quantized.onnx',
   'runtime/models/Xenova/multilingual-e5-small/tokenizer.json']) {
   assert.ok(entries.has(`extension/${name}`), `Missing ${name}`);
 }
@@ -52,6 +52,9 @@ for (const [file, hash] of Object.entries(integrity.files)) {
 const target = entries.get('extension.vsixmanifest').toString().match(/TargetPlatform="([a-z0-9-]+)"/)?.[1];
 assert.ok(['win32-x64', 'darwin-x64', 'darwin-arm64', 'linux-x64', 'linux-arm64'].includes(target), `Unexpected target ${target}`);
 const [os, arch] = target.split('-');
+const sqliteVecPackage = os === 'win32' ? `sqlite-vec-windows-${arch}` : `sqlite-vec-${os}-${arch}`;
+const sqliteVecExtension = os === 'win32' ? 'dll' : os === 'darwin' ? 'dylib' : 'so';
+assert.ok(entries.has(`extension/runtime/node_modules/${sqliteVecPackage}/vec0.${sqliteVecExtension}`), `Missing sqlite-vec extension for ${target}`);
 const bunFile = os === 'win32' ? 'runtime/bun.exe' : 'runtime/bun';
 const magics = { win32: ['4d5a'], linux: ['7f454c46'], darwin: ['cffaedfe', 'cafebabe', 'bebafeca'] };
 for (const binary of [bunFile]) {

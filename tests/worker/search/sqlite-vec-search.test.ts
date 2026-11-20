@@ -78,7 +78,17 @@ test('reuses unchanged vectors, reindexes edits, excludes deleted rows and pages
     expect(setup.store.db.query('SELECT 1 FROM local_vectors WHERE key = ?').get(`observations:${first}`)).toBeNull();
   } finally { setup.store.close(); }
 });
-
+test('stores a one-bit signature alongside each full-precision vector', async () => {
+  const setup = fixture();
+  try {
+    setup.add('semantic indexed note');
+    await setup.search.search({ query: 'meaning', project: 'allowed', searchType: 'observations' });
+    const row = setup.store.db.query('SELECT bit_signature FROM local_vectors').get() as { bit_signature: Uint8Array };
+    expect(row.bit_signature).toBeInstanceOf(Uint8Array);
+    expect(row.bit_signature.byteLength).toBe(1);
+    expect(row.bit_signature[0] & 1).toBe(1);
+  } finally { setup.store.close(); }
+});
 test('retains keyword matches on embedding failure and does not embed filter-only queries', async () => {
   const setup = fixture();
   try {

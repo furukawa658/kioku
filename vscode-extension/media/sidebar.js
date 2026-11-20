@@ -55,7 +55,30 @@
       summaryRunningScript: 'Summarizing with the script (no credits used)',
       summaryFailed: 'Could not complete the summary.',
       summaryDone: 'Summary complete.',
-      summaryHeading: 'Summary'
+      summaryHeading: 'Summary',
+      curationHeading: 'Curate',
+      memoryProject: 'Project',
+      memoryCause: 'Cause',
+      memoryLesson: 'Lesson',
+      saveMemoryEdit: 'Save edits',
+      invalidateMemory: 'Invalidate',
+      restoreMemory: 'Restore',
+      invalidationReason: 'Reason',
+      replacementMemory: 'Replacement memory ID',
+      memoryEditSaving: 'Saving edits',
+      memoryEditDone: 'Memory updated. Search vectors will be rebuilt as needed.',
+      memoryInvalidating: 'Updating search availability',
+      memoryInvalidated: 'Memory hidden from search.',
+      memoryRestored: 'Memory is searchable again.',
+      injectInstructions: 'Add agent instructions',
+      copyMcpConfig: 'Copy MCP config',
+      workStateHeading: 'Work State',
+      loadWorkState: 'Refresh',
+      clearWorkState: 'Clear open state',
+      workStateLoading: 'Loading work state',
+      workStateClearing: 'Closing open work state',
+      workStateEmpty: 'No open work state',
+      workStateCleared: 'Open work state closed.'
     },
     ja: {
       connectionChecking: '接続確認中',
@@ -100,7 +123,30 @@
       summaryRunningScript: 'スクリプトで要約中（クレジット消費なし）',
       summaryFailed: '要約を完了できませんでした。',
       summaryDone: '要約が完了しました。',
-      summaryHeading: '要約'
+      summaryHeading: '要約',
+      curationHeading: 'キュレーション',
+      memoryProject: 'プロジェクト',
+      memoryCause: '原因',
+      memoryLesson: '教訓',
+      saveMemoryEdit: '変更を保存',
+      invalidateMemory: '検索対象外にする',
+      restoreMemory: '検索対象へ戻す',
+      invalidationReason: '理由',
+      replacementMemory: '置換先の記憶ID',
+      memoryEditSaving: '変更を保存中',
+      memoryEditDone: '記憶を更新しました。検索ベクトルは必要時に再計算されます。',
+      memoryInvalidating: '検索状態を更新中',
+      memoryInvalidated: '検索対象から外しました。',
+      memoryRestored: '検索対象へ戻しました。',
+      injectInstructions: 'エージェント指示を追加',
+      copyMcpConfig: 'MCP設定をコピー',
+      workStateHeading: 'Work State',
+      loadWorkState: '更新',
+      clearWorkState: '未完了を完了へ',
+      workStateLoading: 'Work Stateを取得中',
+      workStateClearing: '未完了の状態を完了へ更新中',
+      workStateEmpty: '未完了のWork Stateはありません',
+      workStateCleared: '未完了のWork Stateを完了にしました。'
     }
   };
 
@@ -158,6 +204,8 @@
     detailLoaded = false;
     lastDetailRow = null;
     element('summarize').disabled = true;
+    element('save-memory-edit').disabled = true;
+    element('invalidate-memory').disabled = true;
     element('detail').hidden = true;
     selectedId = undefined;
     for (const button of element('results').querySelectorAll('button')) button.removeAttribute('aria-current');
@@ -207,6 +255,54 @@
     if (Array.isArray(value)) return value.filter(item => typeof item === 'string').join('\n');
     if (typeof value !== 'string') return '';
     try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? list(parsed) : value; } catch { return value; }
+  }
+
+  function memoryFields(narrative) {
+    const text = typeof narrative === 'string' ? narrative : '';
+    return {
+      cause: text.match(/^Cause:\s*(.*)$/m)?.[1]?.trim() ?? '',
+      lesson: text.match(/^Lesson:\s*(.*)$/m)?.[1]?.trim() ?? ''
+    };
+  }
+
+  function updateCurationButtons() {
+    const busy = pending.has('editMemory') || pending.has('invalidateMemory');
+    element('save-memory-edit').disabled = !detailLoaded || busy;
+    element('invalidate-memory').disabled = !detailLoaded || busy;
+    setText('invalidate-memory', lastDetailRow?.invalidated ? 'restoreMemory' : 'invalidateMemory');
+  }
+
+  function setCurationRow(row) {
+    const fields = memoryFields(row.narrative);
+    element('detail-project').value = row.project || '';
+    element('detail-cause').value = fields.cause;
+    element('detail-lesson').value = fields.lesson;
+    element('invalidation-reason').value = row.invalidation?.reason || '';
+    element('replacement-memory').value = row.invalidation?.replacedBy ? String(row.invalidation.replacedBy) : '';
+    updateCurationButtons();
+  }
+
+  function renderWorkState(data) {
+    const lists = new Map();
+    for (const entry of Array.isArray(data?.entries) ? data.entries : []) {
+      const key = `${entry.project}\0${entry.list_name}`;
+      const list = lists.get(key) ?? { name: entry.list_name, state: {}, tasks: new Map() };
+      const fields = entry.fields && typeof entry.fields === 'object' ? entry.fields : {};
+      if (fields.task === undefined || fields.task === null || fields.task === '') list.state = { ...list.state, ...fields };
+      else list.tasks.set(String(fields.task), { ...(list.tasks.get(String(fields.task)) || {}), ...fields });
+      lists.set(key, list);
+    }
+    const lines = [];
+    for (const list of lists.values()) {
+      const state = Object.entries(list.state).filter(([key, value]) => key !== 'status' && value !== null).map(([key, value]) => `${key}=${value}`).join(', ');
+      if (list.state.status !== 'done' && list.state.status !== 'dropped' && state) lines.push(`${list.name}: ${state}`);
+      for (const [task, fields] of list.tasks) {
+        if (fields.status === 'done' || fields.status === 'dropped') continue;
+        lines.push(`- [${fields.status || 'open'}] ${task}`);
+      }
+    }
+    setRaw('work-state-body', lines.join('\n'));
+    setText('work-state-status', lines.length ? 'workStateHeading' : 'workStateEmpty');
   }
 
   function cancelSummary() {
@@ -302,6 +398,33 @@
     request('summarize', { id: selectedId });
   });
 
+  element('save-memory-edit').addEventListener('click', () => {
+    if (!detailLoaded || pending.has('editMemory')) return;
+    error();
+    setText('curation-status', 'memoryEditSaving');
+    request('editMemory', { id: selectedId, input: {
+      project: element('detail-project').value.trim(),
+      cause: element('detail-cause').value,
+      lesson: element('detail-lesson').value
+    } });
+    updateCurationButtons();
+  });
+
+  element('invalidate-memory').addEventListener('click', () => {
+    if (!detailLoaded || pending.has('invalidateMemory')) return;
+    error();
+    setText('curation-status', 'memoryInvalidating');
+    const restore = lastDetailRow?.invalidated === true;
+    const replacement = Number(element('replacement-memory').value);
+    request('invalidateMemory', { id: selectedId, input: {
+      ...(restore ? { restore: true } : {
+        reason: element('invalidation-reason').value.trim(),
+        ...(Number.isSafeInteger(replacement) && replacement > 0 ? { replacedBy: replacement } : {})
+      })
+    } });
+    updateCurationButtons();
+  });
+
   element('search-form').addEventListener('submit', event => {
     event.preventDefault();
     if (!element('search-form').reportValidity()) return;
@@ -325,6 +448,16 @@
   });
 
   element('settings').addEventListener('click', () => vscode.postMessage({ type: 'settings' }));
+  element('inject-instructions').addEventListener('click', () => vscode.postMessage({ type: 'injectInstructions' }));
+  element('copy-mcp-config').addEventListener('click', () => vscode.postMessage({ type: 'copyMcpConfig' }));
+  element('load-work-state').addEventListener('click', () => {
+    setText('work-state-status', 'workStateLoading');
+    request('workState');
+  });
+  element('clear-work-state').addEventListener('click', () => {
+    setText('work-state-status', 'workStateClearing');
+    request('clearWorkState');
+  });
   element('close-detail').addEventListener('click', closeDetail);
 
   window.addEventListener('message', event => {
@@ -368,6 +501,14 @@
       for (const project of message.data.projects) element('project').add(new Option(project, project));
       element('project').value = message.data.projects.includes(selected) ? selected : '';
     }
+    if (message.type === 'workState' || message.type === 'clearWorkState') {
+      if (message.error) { setRaw('work-state-status', message.error); error(message.error); return; }
+      if (message.type === 'workState') renderWorkState(message.data);
+      else {
+        setText('work-state-status', 'workStateCleared');
+        request('workState');
+      }
+    }
     if (message.type === 'search') {
       element('search').disabled = false;
       element('results').setAttribute('aria-busy', 'false');
@@ -389,6 +530,14 @@
       setRaw('detail-title', row.title || t('memoryFallback', { id: row.id }));
       setRaw('detail-meta', metadata(row));
       setRaw('detail-body', [row.subtitle, row.narrative, list(row.facts), list(row.concepts), list(row.files_read), list(row.files_modified)].filter(Boolean).join('\n\n'));
+      setCurationRow(row);
+    }
+    if (message.type === 'editMemory' || message.type === 'invalidateMemory') {
+      updateCurationButtons();
+      if (message.error) { setRaw('curation-status', message.error); error(message.error); return; }
+      if (message.type === 'editMemory') setText('curation-status', 'memoryEditDone');
+      else setText('curation-status', message.data?.invalidated ? 'memoryInvalidated' : 'memoryRestored');
+      request('detail', { id: selectedId });
     }
     if (message.type === 'summarize') {
       updateSummaryButton();

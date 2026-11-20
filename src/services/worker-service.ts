@@ -1302,6 +1302,9 @@ export class WorkerService implements WorkerRef {
       this.searchRoutes = new SearchRoutes(searchManager, this.contextCacheService, this.syncClient, contextReader);
       this.server.registerRoutes(this.searchRoutes);
       this.contextCacheService.start();
+      void searchManager.warmLocalIndex().then(count => {
+        if (count > 0) logger.info('SEARCH', 'Local vector index ready', { candidates: count });
+      });
       logger.info('WORKER', 'SearchManager initialized and search routes registered');
 
       const corpusBuilder = new CorpusBuilder(

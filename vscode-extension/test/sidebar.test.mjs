@@ -73,6 +73,31 @@ test('sidebar search, filters, plain-text detail, stale replies, empty and error
     assert.equal(await page.locator('#detail-body img').count(), 0);
     assert.equal(await page.evaluate(() => window.injected), undefined);
     assert.equal(await page.locator('.result[aria-current=true]').count(), 1);
+    await page.locator('#detail-project').fill('kioku/updated');
+    await page.locator('#detail-cause').fill('Missing guard.');
+    await page.locator('#detail-lesson').fill('Check the guard.');
+    await page.locator('#save-memory-edit').click();
+    assert.deepEqual(await page.evaluate(() => window.sent.at(-1)), {
+      type: 'editMemory', requestId: 6, id: 2,
+      input: { project: 'kioku/updated', cause: 'Missing guard.', lesson: 'Check the guard.' }
+    });
+    await reply('editMemory', { data: { success: true, id: 2 } });
+    await page.waitForFunction(() => window.sent.at(-1).type === 'detail');
+    await reply('detail', { data: { id: 2, title: 'Next memory', project: 'kioku/updated', narrative: 'Updated\n\nCause: Missing guard.\nLesson: Check the guard.', invalidated: false } });
+    assert.equal(await page.locator('#detail-cause').inputValue(), 'Missing guard.');
+    await page.locator('#invalidation-reason').fill('Replaced by the new rule.');
+    await page.locator('#replacement-memory').fill('12');
+    await page.locator('#invalidate-memory').click();
+    assert.deepEqual(await page.evaluate(() => window.sent.at(-1).input), { reason: 'Replaced by the new rule.', replacedBy: 12 });
+    await reply('invalidateMemory', { data: { success: true, id: 2, invalidated: true } });
+    await page.waitForFunction(() => window.sent.at(-1).type === 'detail');
+    await reply('detail', { data: { id: 2, title: 'Next memory', project: 'kioku/updated', narrative: 'Updated', invalidated: true, invalidation: { reason: 'Replaced by the new rule.' } } });
+    await page.getByRole('button', { name: 'Restore', exact: true }).waitFor();
+    await page.locator('#invalidate-memory').click();
+    assert.deepEqual(await page.evaluate(() => window.sent.at(-1).input), { restore: true });
+    await reply('invalidateMemory', { data: { success: true, id: 2, invalidated: false } });
+    await page.waitForFunction(() => window.sent.at(-1).type === 'detail');
+    await reply('detail', { data: { id: 2, title: 'Next memory', project: 'kioku/updated', narrative: 'Updated', invalidated: false } });
     await reply('copilotState', { data: { enabled: false } });
     assert.equal(await page.getByRole('switch').isChecked(), false);
     assert.equal(await page.locator('#summarize').isDisabled(), false);

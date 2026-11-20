@@ -50,7 +50,6 @@
     "長期記憶"
   ],
   "activationEvents": [
-    "onView:kioku.search",
     "onMcpServerDefinitionProvider:kioku.local"
   ],
   "scripts": {
@@ -59,6 +58,12 @@
     "check": "node --check extension.cjs && node --check runtime.cjs && node --check mcp-provider.cjs && node --check copilot.cjs && node --check local-summary.cjs && node --check language.cjs && node --check media/sidebar.js"
   },
   "contributes": {
+    "commands": [
+      { "command": "kioku.injectInstructions", "title": "kioku: Inject Copilot Instructions" },
+      { "command": "kioku.copyMcpConfig", "title": "kioku: Copy MCP Configuration" },
+      { "command": "kioku.exportLessons", "title": "kioku: Export Project Lessons" },
+      { "command": "kioku.importLessons", "title": "kioku: Import Project Lessons" }
+    ],
     "mcpServerDefinitionProviders": [
       { "id": "kioku.local", "label": "kioku local memory" }
     ],

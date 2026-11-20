@@ -1,5 +1,6 @@
 import { bunVersionHonoursBunBeBun, MINIMUM_BUN_VERSION_FOR_BUN_BE_BUN } from '../src/launcher/bun-be-bun-support.ts';
 import { deepSearchBuildPlugin } from './deep-search-build.js';
+import fs from 'node:fs';
 import path from 'node:path';
 
 /** Match build-hooks.js: mixed zod/v4 re-exports and lazy zod imports can call
@@ -8,11 +9,15 @@ export function workerBinaryBuildOptions({ root = process.cwd(), outfile, target
   if (!bunVersionHonoursBunBeBun(bunVersion)) {
     throw new Error(`Standalone deep search requires Bun ${MINIMUM_BUN_VERSION_FOR_BUN_BE_BUN}+ to execute its child program; rebuild with a compatible Bun. This check does not change the source/runtime engine requirement.`);
   }
+  const { version } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   return {
     entrypoints: [path.join(root, 'src/services/worker-service.ts'), path.join(root, 'src/services/context/context-read-worker.ts'), path.join(root, 'src/services/work-view/work-view-read-worker.ts')],
     target: 'bun', naming: '[name].js', minify: true,
-    external: ['@opentelemetry/api'],
-    define: { '__CMEM_MEDIA_STANDALONE__': 'true' },
+    external: ['@opentelemetry/api', 'sqlite-vec'],
+    define: {
+      '__CMEM_MEDIA_STANDALONE__': 'true',
+      '__DEFAULT_PACKAGE_VERSION__': JSON.stringify(version),
+    },
     compile: { outfile, autoloadPackageJson: true, ...(target ? { target } : {}) },
     plugins: [{ name: 'lazy-transformers-sharp', setup(builder) {
       builder.onResolve({ filter: /^sharp$/ }, args => args.importer.replaceAll('\\', '/').includes('@huggingface/transformers')

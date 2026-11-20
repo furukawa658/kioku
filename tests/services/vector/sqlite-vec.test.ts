@@ -3,6 +3,24 @@ import { Database } from 'bun:sqlite';
 import { SQLiteVecIndex } from '../../../src/services/vector/SQLiteVecIndex.js';
 
 describe('SQLiteVecIndex', () => {
+  test('loads the sqlite-vec extension and uses bit prefiltering for large candidate sets', () => {
+    const db = new Database(':memory:');
+    try {
+      const index = new SQLiteVecIndex(db, 'test-model', 2);
+      expect(index.backend).toBe('sqlite-vec');
+      const keys: string[] = [];
+      for (let position = 0; position < 300; position++) {
+        const key = `candidate-${position}`;
+        keys.push(key);
+        index.put(key, 'hash', position === 177
+          ? new Float32Array([1, 0])
+          : new Float32Array([0.01, 1]));
+      }
+      expect(index.nearest(new Float32Array([1, 0]), keys, 1).map(row => row.key)).toEqual(['candidate-177']);
+      expect(db.query("SELECT type FROM sqlite_master WHERE name LIKE 'local_vec_index_%'").get()).toEqual({ type: 'table' });
+    } finally { db.close(); }
+  });
+
   test('ranks real SQLite vectors and restricts candidates before ranking', () => {
     const db = new Database(':memory:');
     try {

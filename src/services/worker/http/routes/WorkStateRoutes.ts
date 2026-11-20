@@ -6,7 +6,7 @@ import { validateBody } from '../middleware/validateBody.js';
 import { isProjectExcluded } from '../../../../utils/project-filter.js';
 import { SettingsDefaultsManager } from '../../../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../../../shared/paths.js';
-import { getProjectContext } from '../../../../utils/project-name.js';
+import { getGitMemoryMetadata, getProjectContext } from '../../../../utils/project-name.js';
 import { logger } from '../../../../utils/logger.js';
 import type { WorkStateFields } from '../../../sqlite/work-state.js';
 import { isMyRulesList } from '../../../work-view/my-rules.mjs';
@@ -18,6 +18,7 @@ import { isSharedWorkList } from '../../../work-view/shared-records.mjs';
 import { isClosedWorkStateStatus } from '../../../work-view/work-state-status.mjs';
 import {
   fitWorkStateLines,
+  foldWorkStateList,
   renderWorkStateLines,
   renderWorkStateReadText,
   WORK_STATE_SECTION_CHARACTER_LIMIT,
@@ -49,6 +50,11 @@ const workStateWriteSchema = z.object({
     ),
 });
 
+const workStateClearSchema = z.object({
+  cwd: z.string().refine(cwd => cwd.trim().length > 0, 'cwd is required'),
+  list: z.string().trim().min(1).max(200).optional(),
+}).strict();
+
 /** Why an owner-goals row cannot be saved, or null. List state rows and a row that only closes an item need no kind. */
 export function ownerGoalsRowRefusal(fields: WorkStateFields): string | null {
   if (fields.task == null || fields.task === '') return null;
@@ -74,9 +80,48 @@ export class WorkStateRoutes extends BaseRouteHandler {
 
   setupRoutes(app: express.Application): void {
     app.post('/api/work-state/entries', validateBody(workStateWriteSchema), this.handleWrite.bind(this));
+    app.post('/api/work-state/clear', validateBody(workStateClearSchema), this.handleClear.bind(this));
     app.get('/api/work-state', this.handleRead());
     app.get('/api/work-state/export', this.handleRead(true));
   }
+
+  private handleClear = this.wrapHandler((req: Request, res: Response): void => {
+    if (isForeignLoopbackBrowserWrite(req)) {
+      res.status(403).json({ error: 'Work-state writes from a different localhost origin are not allowed' });
+      return;
+    }
+    const { cwd, list } = req.body as z.infer<typeof workStateClearSchema>;
+    if (list && (isMyRulesList(list) || isMyFocusList(list) || isSharedWorkList(list))) {
+      res.status(403).json({ error: 'Reserved Work State lists cannot be cleared here' });
+      return;
+    }
+    const checkout = getProjectContext(cwd);
+    const store = this.dbManager.getSessionStore();
+    const entries = store.getWorkStateEntries(checkout.allProjects, list);
+    const byList = new Map<string, typeof entries>();
+    for (const entry of entries) {
+      if (isMyRulesList(entry.list_name) || isMyFocusList(entry.list_name) || isSharedWorkList(entry.list_name)) continue;
+      const key = JSON.stringify([entry.scope_project ?? entry.project, entry.list_name]);
+      byList.set(key, [...(byList.get(key) ?? []), entry]);
+    }
+    let cleared = 0;
+    for (const listEntries of byList.values()) {
+      const folded = foldWorkStateList(listEntries);
+      const targetProject = listEntries.at(-1)!.project;
+      const listName = listEntries[0].list_name;
+      if (Object.keys(folded.state).length > 0 && !isClosedWorkStateStatus(folded.state.status)) {
+        store.appendWorkStateEntry({ project: targetProject, listName, fields: { status: 'done' } });
+        cleared++;
+      }
+      for (const [task, state] of folded.tasks) {
+        if (isClosedWorkStateStatus(state.fields.status)) continue;
+        store.appendWorkStateEntry({ project: targetProject, listName, fields: { task, status: 'done' } });
+        cleared++;
+      }
+    }
+    this.dbManager.getCloudSync()?.notify();
+    res.json({ success: true, project: checkout.primary, cleared });
+  });
 
   private handleWrite = this.wrapHandler((req: Request, res: Response): void => {
     // These rows are the agent's canonical to-do lists, so other localhost pages
@@ -117,7 +162,10 @@ export class WorkStateRoutes extends BaseRouteHandler {
 
     const checkout = getProjectContext(cwd);
     const store = this.dbManager.getSessionStore();
-    store.appendWorkStateEntry({ project: checkout.primary, listName: list, fields });
+    const git = getGitMemoryMetadata(cwd);
+    const storedFields = git ? { ...fields, git_branch: git.gitBranch,
+      ...(git.gitRemoteHash ? { git_remote_hash: git.gitRemoteHash } : {}) } : fields;
+    store.appendWorkStateEntry({ project: checkout.primary, listName: list, fields: storedFields });
     logger.debug('WORKER', 'Work state entry saved', { project: checkout.primary, list });
     // The row is a `work_state` sync op: nudge the push drain (null when sync is off).
     this.dbManager.getCloudSync()?.notify();
