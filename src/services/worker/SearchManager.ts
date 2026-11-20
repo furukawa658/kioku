@@ -87,6 +87,10 @@ export class SearchManager {
     return this.orchestrator;
   }
 
+  warmLocalIndex(): Promise<number> {
+    return this.localSearch?.warm() ?? Promise.resolve(0);
+  }
+
   getFormatter(): FormattingService {
     return this.formatter;
   }

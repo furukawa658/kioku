@@ -24,6 +24,13 @@ export function createLocalVectorSearch(searcher: SessionSearch, store: SessionS
 
 const MIN_VECTORS_FOR_CUTOFF = 8;
 
+export function freshnessWeight(createdAtEpoch: number, now = Date.now()): number {
+  const days = Number(process.env.KIOKU_RECENCY_HALF_LIFE_DAYS ?? 180);
+  const halfLifeMs = (Number.isFinite(days) && days > 0 ? days : 180) * 86_400_000;
+  const age = Math.max(0, now - createdAtEpoch);
+  return 0.8 + 0.2 * 2 ** (-age / halfLifeMs);
+}
+
 /**
  * Keeps only hits that stand out from the rest of the category: cosine distance
  * at least `KIOKU_VECTOR_MIN_Z` standard deviations (default 1.4) below the mean.
@@ -54,6 +61,17 @@ export class SQLiteVecSearch {
     this.keywords = new SQLiteSearchStrategy(searcher);
   }
 
+  async warm(): Promise<number> {
+    try {
+      const candidates = this.candidates({ searchType: 'all' });
+      await this.ensureVectors(candidates);
+      return candidates.length;
+    } catch (error) {
+      logger.warn('SEARCH', 'Local vector pre-indexing failed', {}, error instanceof Error ? error : undefined);
+      return 0;
+    }
+  }
+
   async search(options: StrategySearchOptions): Promise<StrategySearchResult> {
     if (!options.query?.trim()) return this.keywords.search(options);
     const offset = Number(options.offset ?? 0);
@@ -66,21 +84,8 @@ export class SQLiteVecSearch {
     const results: SearchResults = { observations: [], sessions: [], prompts: [] };
     let semantic = false;
     try {
-      for (const [category, table] of [['observations', 'observations'], ['sessions', 'session_summaries'], ['prompts', 'user_prompts']]) {
-        this.store.db.query(`DELETE FROM local_vectors WHERE key LIKE ? AND NOT EXISTS
-          (SELECT 1 FROM ${table} WHERE id = CAST(substr(local_vectors.key, instr(local_vectors.key, ':') + 1) AS INTEGER))`)
-          .run(`${category}:%`);
-      }
       const candidates = this.candidates({ searchType: options.searchType });
-      const pending = candidates.filter(item => !this.index.has(item.key, item.hash));
-      for (let start = 0; start < pending.length; start += 8) {
-        const batch = pending.slice(start, start + 8);
-        const vectors = await this.embedder.embed(batch.map(item => item.text), 'passage');
-        if (vectors.length !== batch.length) throw new Error('Incomplete embedding batch');
-        for (let index = 0; index < batch.length; index++) this.index.put(batch[index].key, batch[index].hash, vectors[index]);
-        logger.debug('SEARCH', 'Local vector index progress', { indexed: Math.min(start + 8, pending.length), total: pending.length });
-        await setImmediate();
-      }
+      await this.ensureVectors(candidates);
       const [query] = await this.embedder.embed([options.query], 'query');
       if (!query) throw new Error('Missing query embedding');
       const current = this.candidates(options);
@@ -109,7 +114,8 @@ export class SQLiteVecSearch {
         const ranked = [...rows.values()].sort((left, right) => {
           if (options.orderBy === 'date_asc') return left.created_at_epoch - right.created_at_epoch || left.id - right.id;
           if (options.orderBy === 'date_desc') return right.created_at_epoch - left.created_at_epoch || right.id - left.id;
-          return scores.get(right.id)! - scores.get(left.id)! || left.id - right.id;
+          return scores.get(right.id)! * freshnessWeight(right.created_at_epoch)
+            - scores.get(left.id)! * freshnessWeight(left.created_at_epoch) || left.id - right.id;
         });
         const keywordIds = new Set(keyword.results[category].map(row => row.id));
         const selected = ranked.slice(offset, offset + limit).map(row => {
@@ -134,6 +140,23 @@ export class SQLiteVecSearch {
 
   private setCategory<Category extends SearchCategory>(results: SearchResults, category: Category, rows: SearchResult[]): void {
     results[category] = rows as SearchResults[Category];
+  }
+
+  private async ensureVectors(candidates: ReturnType<SQLiteVecSearch['candidates']>): Promise<void> {
+    for (const [category, table] of [['observations', 'observations'], ['sessions', 'session_summaries'], ['prompts', 'user_prompts']]) {
+      this.store.db.query(`DELETE FROM local_vectors WHERE key LIKE ? AND NOT EXISTS
+        (SELECT 1 FROM ${table} WHERE id = CAST(substr(local_vectors.key, instr(local_vectors.key, ':') + 1) AS INTEGER))`)
+        .run(`${category}:%`);
+    }
+    const pending = candidates.filter(item => !this.index.has(item.key, item.hash));
+    for (let start = 0; start < pending.length; start += 8) {
+      const batch = pending.slice(start, start + 8);
+      const vectors = await this.embedder.embed(batch.map(item => item.text), 'passage');
+      if (vectors.length !== batch.length) throw new Error('Incomplete embedding batch');
+      for (let index = 0; index < batch.length; index++) this.index.put(batch[index].key, batch[index].hash, vectors[index]);
+      logger.debug('SEARCH', 'Local vector index progress', { indexed: Math.min(start + 8, pending.length), total: pending.length });
+      await setImmediate();
+    }
   }
 
   private candidates(options: StrategySearchOptions) {

@@ -523,6 +523,7 @@ async function buildHooks() {
         // Native decoder must remain external and be installed for each host.
         // https://sharp.pixelplumbing.com/install/#bundlers
         'sharp': packageJson.dependencies.sharp,
+        'sqlite-vec': packageJson.devDependencies['sqlite-vec'],
         'zod': '^4.4.3',
         // better-auth stays external in the bundles below (~3.7MB), so the
         // worker's /api/auth/* routes (Pro sign-in) resolve it from
@@ -660,6 +661,7 @@ async function buildHooks() {
       logLevel: 'error', // Suppress warnings (import.meta warning is benign)
       external: [
         'sharp',
+        'sqlite-vec',
         'bun:sqlite',
         // bun:ffi backs Windows listen-socket HANDLE_FLAG_INHERIT clearing (#3300).
         'bun:ffi',
@@ -701,8 +703,10 @@ async function buildHooks() {
     });
 
     assertBundleIntegrity(`${hooksDir}/${WORKER_SERVICE.name}.cjs`);
+    const workerBundlePath = `${hooksDir}/${WORKER_SERVICE.name}.cjs`;
+    fs.writeFileSync(workerBundlePath, fs.readFileSync(workerBundlePath, 'utf8').replace(/[ \t]+$/gm, ''));
 
-    const workerZodRequire = fs.readFileSync(`${hooksDir}/${WORKER_SERVICE.name}.cjs`, 'utf-8')
+    const workerZodRequire = fs.readFileSync(workerBundlePath, 'utf-8')
       .match(/require\(\s*["']zod(?:\/[^"']*)?["']\s*\)/);
     if (workerZodRequire) {
       throw new Error(

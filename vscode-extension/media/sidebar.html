@@ -17,6 +17,10 @@
     </div>
   </header>
   <p id="connection" role="status">Checking connection</p>
+  <div class="setup-actions">
+    <button id="inject-instructions" class="command secondary" type="button" data-i18n="injectInstructions">Add agent instructions</button>
+    <button id="copy-mcp-config" class="command secondary" type="button" data-i18n="copyMcpConfig">Copy MCP config</button>
+  </div>
   <main>
     <section class="ai-settings" aria-labelledby="copilot-heading">
       <h2 id="copilot-heading" data-i18n="summaryMethodHeading">Summary method</h2>
@@ -27,6 +31,17 @@
         <p data-i18n="copilotHelp3">When on, you must be signed in to Copilot. Some models consume usage quota. Terms of use and data handling follow your plan and your organization's policies.</p>
       </div>
       <p id="copilot-setting-status" role="status" class="metadata"></p>
+    </section>
+    <section class="work-state" aria-labelledby="work-state-heading">
+      <div class="detail-heading">
+        <h2 id="work-state-heading" data-i18n="workStateHeading">Work State</h2>
+        <div class="tools">
+          <button id="load-work-state" class="command secondary" type="button" data-i18n="loadWorkState">Refresh</button>
+          <button id="clear-work-state" class="command secondary" type="button" data-i18n="clearWorkState">Clear open state</button>
+        </div>
+      </div>
+      <p id="work-state-status" role="status" class="metadata"></p>
+      <pre id="work-state-body"></pre>
     </section>
     <form id="search-form">
       <label for="query" data-i18n="queryLabel">Search terms</label>
@@ -48,6 +63,24 @@
       <h3 id="detail-title"></h3>
       <p id="detail-meta" class="metadata"></p>
       <div id="detail-body"></div>
+      <section class="curation" aria-labelledby="curation-heading">
+        <h3 id="curation-heading" data-i18n="curationHeading">Curate</h3>
+        <label for="detail-project" data-i18n="memoryProject">Project</label>
+        <input id="detail-project" maxlength="512" autocomplete="off">
+        <label for="detail-cause" data-i18n="memoryCause">Cause</label>
+        <textarea id="detail-cause" rows="3"></textarea>
+        <label for="detail-lesson" data-i18n="memoryLesson">Lesson</label>
+        <textarea id="detail-lesson" rows="3"></textarea>
+        <div class="curation-actions">
+          <button id="save-memory-edit" class="command" type="button" data-i18n="saveMemoryEdit">Save edits</button>
+          <button id="invalidate-memory" class="command secondary" type="button" data-i18n="invalidateMemory">Invalidate</button>
+        </div>
+        <label for="invalidation-reason" data-i18n="invalidationReason">Reason</label>
+        <input id="invalidation-reason" maxlength="1000" autocomplete="off">
+        <label for="replacement-memory" data-i18n="replacementMemory">Replacement memory ID</label>
+        <input id="replacement-memory" type="number" min="1" step="1" inputmode="numeric" autocomplete="off">
+        <p id="curation-status" role="status" class="metadata"></p>
+      </section>
       <button id="summarize" class="command" type="button" title="Summarize the selected memory with the script" disabled><img src="{{sparkles}}" alt=""><span id="summary-button-text">Summarize with script</span></button>
       <p id="summary-status" role="status" class="metadata"></p>
       <section id="ai-summary" hidden aria-labelledby="summary-heading">

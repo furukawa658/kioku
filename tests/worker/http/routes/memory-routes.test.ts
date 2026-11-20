@@ -14,7 +14,7 @@ it('validates, invalidates and restores through the memory HTTP route', async ()
       facts: [], concepts: [], files_read: [], files_modified: [],
     }, 0, 0).id;
     const routes = new MemoryRoutes({ getConnection: () => store.db } as any, 'route-test');
-    const app: any = {};
+    const app: any = { get: mock(() => {}) };
     const handler = captureChain(app, '/api/memory/invalidate');
     routes.setupRoutes(app);
     for (const restore of [false, true]) {
@@ -25,6 +25,38 @@ it('validates, invalidates and restores through the memory HTTP route', async ()
     const invalid = createMockReqRes({ id: -1 });
     await handler(invalid.req as Request, invalid.res as Response);
     expect(invalid.statusSpy).toHaveBeenCalledWith(400);
+  } finally { store.close(); }
+});
+
+it('edits lesson fields and project while invalidating the old vector', async () => {
+  const store = new SessionStore(':memory:');
+  try {
+    const session = store.getOrCreateManualSession('route-test', 'claude');
+    const id = store.storeObservation(session, 'route-test', {
+      type: 'discovery', title: 'Release rule', subtitle: 'Manual memory',
+      narrative: 'The release failed.\n\nOutcome: failure\nCause: Missing check.\nLesson: Run the check.',
+      facts: [], concepts: ['lesson', 'outcome-failure'], files_read: [], files_modified: [],
+    }, 0, 0).id;
+    store.db.run(`CREATE TABLE local_vectors (key TEXT PRIMARY KEY, model_id TEXT NOT NULL,
+      content_hash TEXT NOT NULL, embedding BLOB NOT NULL, bit_signature BLOB)`);
+    store.db.prepare('INSERT INTO local_vectors VALUES (?, ?, ?, ?, ?)')
+      .run(`observations:${id}`, 'fixture', 'old', new Uint8Array([1]), null);
+    const routes = new MemoryRoutes({
+      getConnection: () => store.db,
+      getCloudSync: () => null,
+    } as any, 'route-test');
+    const app: any = { get: mock(() => {}) };
+    const handler = captureChain(app, '/api/memory/edit');
+    routes.setupRoutes(app);
+    const { req, res, jsonSpy } = createMockReqRes({ id, project: 'moved-project', cause: 'Check was disabled.', lesson: '' });
+    await handler(req as Request, res as Response);
+    expect(jsonSpy.mock.calls[0][0]).toMatchObject({ success: true, id, project: 'moved-project', lesson: '' });
+    const row = store.db.query('SELECT narrative, project, concepts, sync_rev FROM observations WHERE id = ?').get(id) as any;
+    expect(row.narrative).toBe('The release failed.\n\nOutcome: failure\nCause: Check was disabled.');
+    expect(row.project).toBe('moved-project');
+    expect(JSON.parse(row.concepts)).toEqual(['outcome-failure']);
+    expect(Number(row.sync_rev)).toBeGreaterThan(0);
+    expect(store.db.query('SELECT 1 FROM local_vectors WHERE key = ?').get(`observations:${id}`)).toBeNull();
   } finally { store.close(); }
 });
 

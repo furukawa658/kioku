@@ -43,6 +43,14 @@ body.vscode-dark .icon img, body.vscode-high-contrast .icon img { filter: invert
 #detail { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--vscode-panel-border); }
 #detail-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
 #summary-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.setup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+.work-state { margin: 0 0 18px; padding-bottom: 12px; border-bottom: 1px solid var(--vscode-panel-border); }
+#work-state-body { min-height: 32px; max-height: 180px; margin: 8px 0 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--vscode-descriptionForeground); font: inherit; line-height: 1.6; }
+.curation { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--vscode-panel-border); }
+.curation textarea { width: 100%; min-height: 66px; resize: vertical; border: 1px solid var(--vscode-input-border, transparent); border-radius: 2px; padding: 6px 7px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); font: inherit; letter-spacing: 0; }
+.curation-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.command.secondary { background: transparent; color: var(--vscode-button-secondaryForeground, var(--vscode-foreground)); border-color: var(--vscode-panel-border); }
+.command.secondary:hover { background: var(--vscode-toolbar-hoverBackground); }
 .ai-settings { padding: 0 0 12px; border-bottom: 1px solid var(--vscode-panel-border); }
 .help-text { color: var(--vscode-descriptionForeground); font-size: 12px; }
 .switch-label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

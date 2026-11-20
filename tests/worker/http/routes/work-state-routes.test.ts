@@ -139,6 +139,23 @@ describe('complete work-state export', () => {
 });
 
 describe('WorkStateRoutes', () => {
+  it('clears open work by appending closure patches without deleting history', async () => {
+    store.appendWorkStateEntry({ project, listName: 'release', fields: { phase: 'review' } });
+    store.appendWorkStateEntry({ project, listName: 'release', fields: { task: 'package', status: 'doing' } });
+    store.appendWorkStateEntry({ project, listName: 'release', fields: { task: 'publish', status: 'todo' } });
+    const previousCount = store.getWorkStateEntries([project], 'release').length;
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/work-state/clear`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: checkout, list: 'release' }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ success: true, project, cleared: 3 });
+    const entries = store.getWorkStateEntries([project], 'release');
+    expect(entries).toHaveLength(previousCount + 3);
+    expect(entries.slice(previousCount).map(entry => entry.fields.status)).toEqual(['done', 'done', 'done']);
+    expect(await (await read({ cwd: checkout, list: 'release' })).text()).toContain('Nothing open in "release"');
+  });
+
   // Windows does not support these distinct trailing-whitespace directories.
   const posixIt = process.platform === 'win32' ? it.skip : it;
   posixIt('writes to the literal checkout without changing a plain-named sibling', async () => {

@@ -1,5 +1,6 @@
 const vscode = require('vscode');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { randomBytes } = require('node:crypto');
 const { summarizeWithCopilot } = require('./copilot.cjs');
@@ -7,11 +8,18 @@ const { summarizeLocally } = require('./local-summary.cjs');
 const { runtimeOptions, ensureRuntime } = require('./runtime.cjs');
 const { createMcpProvider } = require('./mcp-provider.cjs');
 const { LANGUAGES, normalizeLanguage } = require('./language.cjs');
+const { globalInstructionsPath, mcpConfig, upsertInstructions } = require('./onboarding.cjs');
 
 function activate(context) {
   const provider = new SearchView(context.extensionUri);
   context.subscriptions.push(provider, vscode.window.registerWebviewViewProvider('kioku.search', provider));
   context.subscriptions.push(vscode.lm.registerMcpServerDefinitionProvider('kioku.local', createMcpProvider(vscode, context.extensionUri.fsPath)));
+  if (vscode.commands?.registerCommand) {
+    context.subscriptions.push(vscode.commands.registerCommand('kioku.injectInstructions', () => provider.injectInstructions()));
+    context.subscriptions.push(vscode.commands.registerCommand('kioku.copyMcpConfig', () => provider.copyMcpConfig()));
+    context.subscriptions.push(vscode.commands.registerCommand('kioku.exportLessons', () => provider.exportLessons()));
+    context.subscriptions.push(vscode.commands.registerCommand('kioku.importLessons', () => provider.importLessons()));
+  }
 }
 
 class SearchView {
@@ -39,6 +47,67 @@ class SearchView {
     return normalizeLanguage(vscode.workspace.getConfiguration('kioku').get('language', 'en'));
   }
 
+  async injectInstructions() {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const choices = [];
+    if (workspaceRoot) choices.push({ label: 'Workspace instructions', target: path.join(workspaceRoot, '.github', 'copilot-instructions.md') });
+    choices.push({ label: 'Global instructions', target: globalInstructionsPath(os.homedir()) });
+    const selected = await vscode.window.showQuickPick(choices, { placeHolder: 'Choose where to install the kioku memory instructions' });
+    if (!selected) return;
+    fs.mkdirSync(path.dirname(selected.target), { recursive: true });
+    const current = fs.existsSync(selected.target) ? fs.readFileSync(selected.target, 'utf8') : '';
+    fs.writeFileSync(selected.target, upsertInstructions(current), 'utf8');
+    const document = await vscode.workspace.openTextDocument(selected.target);
+    await vscode.window.showTextDocument(document);
+    vscode.window.showInformationMessage('kioku memory instructions were added.');
+  }
+
+  async copyMcpConfig() {
+    const configured = vscode.workspace.getConfiguration('kioku').get('workerUrl', '');
+    const options = runtimeOptions(this.extensionUri.fsPath, configured);
+    await vscode.env.clipboard.writeText(mcpConfig(options));
+    vscode.window.showInformationMessage('kioku .mcp.json configuration copied to the clipboard.');
+  }
+
+  async lessonClient() {
+    const { KiokuClient } = await import('./client.mjs');
+    const configured = vscode.workspace.getConfiguration('kioku').get('workerUrl', '');
+    const options = runtimeOptions(this.extensionUri.fsPath, configured);
+    await ensureRuntime(options);
+    const client = new KiokuClient(options.url, undefined, this.language());
+    const overview = await client.overview();
+    if (overview.projects.length === 0) throw new Error('No kioku projects are available.');
+    const project = await vscode.window.showQuickPick(overview.projects, { placeHolder: 'Choose a kioku project' });
+    return project ? { client, project } : null;
+  }
+
+  async exportLessons() {
+    const selected = await this.lessonClient();
+    if (!selected) return;
+    const format = await vscode.window.showQuickPick(['jsonl', 'markdown'], { placeHolder: 'Choose an export format' });
+    if (!format) return;
+    const extension = format === 'markdown' ? 'md' : 'jsonl';
+    const target = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(path.join(os.homedir(), `${selected.project.replace(/[^a-zA-Z0-9._-]/g, '-')}.kioku.${extension}`)),
+      filters: { 'kioku lessons': [extension] },
+    });
+    if (!target) return;
+    const text = await selected.client.exportLessons(selected.project, format);
+    await vscode.workspace.fs.writeFile(target, Buffer.from(text, 'utf8'));
+    vscode.window.showInformationMessage(`Exported kioku lessons to ${path.basename(target.fsPath)}.`);
+  }
+
+  async importLessons() {
+    const [target] = await vscode.window.showOpenDialog({ canSelectMany: false, filters: { 'kioku lessons': ['jsonl', 'md'] } }) ?? [];
+    if (!target) return;
+    const selected = await this.lessonClient();
+    if (!selected) return;
+    const format = target.path.toLowerCase().endsWith('.md') ? 'markdown' : 'jsonl';
+    const data = Buffer.from(await vscode.workspace.fs.readFile(target)).toString('utf8');
+    const result = await selected.client.importLessons(selected.project, format, data);
+    vscode.window.showInformationMessage(`Imported ${result.imported} kioku lessons; skipped ${result.duplicates} duplicates.`);
+  }
+
   resolveWebviewView(view) {
     this.view = view;
     view.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')] };
@@ -60,7 +129,9 @@ class SearchView {
   }
 
   async receive(message) {
-    if (!message || !['overview', 'search', 'detail', 'settings', 'copilotState', 'setCopilot', 'summarize', 'cancelSummary', 'setLanguage'].includes(message.type)) return;
+    if (!message || !['overview', 'search', 'detail', 'settings', 'copilotState', 'setCopilot', 'summarize', 'cancelSummary', 'setLanguage', 'editMemory', 'invalidateMemory', 'injectInstructions', 'copyMcpConfig', 'workState', 'clearWorkState'].includes(message.type)) return;
+    if (message.type === 'injectInstructions') { await this.injectInstructions(); return; }
+    if (message.type === 'copyMcpConfig') { await this.copyMcpConfig(); return; }
     if (message.type === 'cancelSummary') {
       this.controllers.get('summarize')?.abort();
       return;
@@ -109,6 +180,10 @@ class SearchView {
       }
       if (type === 'search') data = await client.search(message.input ?? {}, controller.signal);
       if (type === 'detail') data = await client.observation(message.id, controller.signal);
+      if (type === 'workState') data = await client.workState(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath, controller.signal);
+      if (type === 'clearWorkState') data = await client.clearWorkState(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath, controller.signal);
+      if (type === 'editMemory') data = await client.editMemory(message.id, message.input ?? {}, controller.signal);
+      if (type === 'invalidateMemory') data = await client.invalidateMemory(message.id, message.input ?? {}, controller.signal);
       if (type === 'summarize') {
         const lang = this.language();
         if (this.copilotEnabled()) {

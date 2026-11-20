@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { saveMemory } from '../../src/services/memory/save-memory.js';
+import { saveMemory, saveMemoryChecked } from '../../src/services/memory/save-memory.js';
 import { SessionStore } from '../../src/services/sqlite/SessionStore.js';
 import { SessionSearch } from '../../src/services/sqlite/SessionSearch.js';
+import type { Embedder } from '../../src/services/vector/types.js';
 
 const originalDedup = process.env.CLAUDE_MEM_DEDUP_ENABLED;
 afterEach(() => {
@@ -69,6 +70,55 @@ describe('explicit memory note revisions', () => {
       expect(ids(['outcome-failure'])).toEqual([first.id, revised.id]);
       expect(ids(['lesson'])).not.toContain(plain.id);
       expect(search.searchObservations('latest', { project: 'notes' }).map(row => row.id)).toEqual([revised.id]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('rejects near duplicates and lets an explicit supersede through', async () => {
+    const store = new SessionStore(':memory:');
+    const manager = { getConnection: () => store.db, getSessionStore: () => store, getCloudSync: () => null, getChromaSync: () => null };
+    const embedder: Embedder = {
+      modelId: 'duplicate-fixture', dims: 2,
+      async embed(texts) {
+        return texts.map(text => text.includes('release policy')
+          ? new Float32Array([1, 0])
+          : new Float32Array([0, 1]));
+      },
+    };
+    try {
+      const original = saveMemory(manager as any, 'notes', {
+        title: 'Release policy', text: 'The release policy uses staging.', lesson: 'Use staging first.',
+      });
+      const duplicate = await saveMemoryChecked(manager as any, 'notes', {
+        title: 'Current release policy', text: 'The release policy uses the staging environment.', lesson: 'Always stage the build.',
+      }, embedder);
+      expect(duplicate).toMatchObject({ status: 'duplicate_found', existingId: original.id, existingLesson: 'Use staging first.' });
+      expect(store.db.query('SELECT count(*) AS n FROM observations').get()).toEqual({ n: 1 });
+
+      const replacement = await saveMemoryChecked(manager as any, 'notes', {
+        title: 'Release policy changed', text: 'The release policy uses production.', supersedes: original.id,
+      }, embedder);
+      expect(replacement).toMatchObject({ success: true, superseded: original.id });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(store.db.query('SELECT bit_signature FROM local_vectors WHERE key = ?')
+        .get(`observations:${replacement.id}`)).not.toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  it('saves a replacement and invalidates the superseded observation atomically', () => {
+    const store = new SessionStore(':memory:');
+    const manager = { getConnection: () => store.db, getSessionStore: () => store, getCloudSync: () => null, getChromaSync: () => null };
+    try {
+      const previous = saveMemory(manager as any, 'notes', { title: 'Policy', text: 'Use staging.' });
+      const replacement = saveMemory(manager as any, 'notes', { title: 'Policy', text: 'Use production.', supersedes: previous.id });
+      expect(replacement.superseded).toBe(previous.id);
+      expect(store.db.query('SELECT replaced_by FROM invalidated_observations WHERE observation_id = ?').get(previous.id)).toEqual({ replaced_by: replacement.id });
+
+      expect(() => saveMemory(manager as any, 'notes', { text: 'Rolled back', supersedes: 9999 })).toThrow('not found');
+      expect(store.db.query("SELECT count(*) AS n FROM observations WHERE narrative = 'Rolled back'").get()).toEqual({ n: 0 });
     } finally {
       store.close();
     }

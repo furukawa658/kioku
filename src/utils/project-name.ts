@@ -1,4 +1,5 @@
 import path from 'path';
+import { createHash } from 'crypto';
 import { existsSync, realpathSync, statSync } from 'fs';
 import { homedir, tmpdir } from 'os';
 import { execFileSync } from 'child_process';
@@ -236,6 +237,27 @@ export function parseOriginUrlToSlug(url: string): string | null {
   if (segments.length >= 2) return segments.slice(-2).join('/');
   if (segments.length === 1) return segments[0];
   return null;
+}
+
+export function getGitMemoryMetadata(cwd: string): { gitBranch: string; gitRemoteHash?: string } | null {
+  const repoRoot = findGitRepoRoot(cwd);
+  if (!repoRoot) return null;
+  try {
+    const gitBranch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+      cwd: repoRoot, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+    }).trim();
+    if (!gitBranch) return null;
+    let gitRemoteHash: string | undefined;
+    try {
+      const remote = execFileSync('git', ['remote', 'get-url', 'origin'], {
+        cwd: repoRoot, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+      }).trim();
+      if (remote) gitRemoteHash = createHash('sha256').update(remote).digest('hex');
+    } catch { /* A repository can legitimately have no origin remote. */ }
+    return { gitBranch, ...(gitRemoteHash ? { gitRemoteHash } : {}) };
+  } catch {
+    return null;
+  }
 }
 
 function deriveSlugFromRemote(repoRoot: string): string | null {

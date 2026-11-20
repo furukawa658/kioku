@@ -61,6 +61,16 @@ export class KiokuClient {
     return body;
   }
 
+  async post(path, body, signal) {
+    const response = await this.fetcher(new URL(path, this.baseUrl), {
+      method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000)
+    });
+    if (!response.ok) throw new Error(this.messages.httpStatus(response.status));
+    return response.json();
+  }
+
   async overview(signal) {
     const [stats, catalog] = await Promise.all([
       this.get('/api/stats', {}, signal), this.get('/api/projects', {}, signal)
@@ -97,5 +107,39 @@ export class KiokuClient {
     const row = await this.get(`/api/observation/${id}`, {}, signal);
     if (row?.id !== id) throw new Error(this.messages.invalidDetailFormat);
     return row;
+  }
+
+  async editMemory(id, input, signal) {
+    if (!Number.isSafeInteger(id) || id <= 0) throw new Error(this.messages.invalidMemoryId);
+    return this.post('/api/memory/edit', { id, ...input }, signal);
+  }
+
+  async invalidateMemory(id, input = {}, signal) {
+    if (!Number.isSafeInteger(id) || id <= 0) throw new Error(this.messages.invalidMemoryId);
+    return this.post('/api/memory/invalidate', { id, ...input }, signal);
+  }
+
+  async workState(cwd, signal) {
+    if (typeof cwd !== 'string' || !cwd.trim()) throw new Error('Workspace path is unavailable.');
+    return this.get('/api/work-state/export', { cwd }, signal);
+  }
+
+  async clearWorkState(cwd, signal) {
+    if (typeof cwd !== 'string' || !cwd.trim()) throw new Error('Workspace path is unavailable.');
+    return this.post('/api/work-state/clear', { cwd }, signal);
+  }
+
+  async exportLessons(project, format, signal) {
+    const url = new URL('/api/memory/export', this.baseUrl);
+    url.searchParams.set('project', project);
+    url.searchParams.set('format', format);
+    const response = await this.fetcher(url, { method: 'GET', redirect: 'error',
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000) });
+    if (!response.ok) throw new Error(this.messages.httpStatus(response.status));
+    return response.text();
+  }
+
+  async importLessons(project, format, data, signal) {
+    return this.post('/api/memory/import', { project, format, data }, signal);
   }
 }
