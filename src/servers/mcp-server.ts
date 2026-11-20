@@ -566,7 +566,7 @@ const tools: McpToolDefinition[] = [
   },
   {
     name: 'save_memory',
-    description: `Save an explicit durable note, decision, correction, lesson or handoff into worker-mode claude-mem. Use this for your own note taking after searching memory for duplicates. When the note comes from work that succeeded or failed, do not save only the progress or the result: set outcome, cause and lesson, so the reason and what to do next time can be found again with search concepts="${LESSON_CONCEPT}". Include project when the note belongs to a specific project. Server runtime uses observation_add to write to the selected server.`,
+    description: `Save an explicit durable note, decision, correction, lesson or handoff into worker-mode claude-mem. Use this for your own note taking after searching memory for duplicates. When a near-duplicate has the same authored title but changed content, the new note automatically supersedes the older note. Titles that differ still return the possible duplicate for review. When the note comes from work that succeeded or failed, do not save only the progress or the result: set outcome, cause and lesson, so the reason and what to do next time can be found again with search concepts="${LESSON_CONCEPT}". Include project when the note belongs to a specific project. Server runtime uses observation_add to write to the selected server.`,
     inputSchema: {
       type: 'object',
       properties: {

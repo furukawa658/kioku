@@ -75,7 +75,7 @@ describe('explicit memory note revisions', () => {
     }
   });
 
-  it('rejects near duplicates and lets an explicit supersede through', async () => {
+  it('rejects near duplicates, supersedes revisions with the same authored title and accepts explicit supersedes', async () => {
     const store = new SessionStore(':memory:');
     const manager = { getConnection: () => store.db, getSessionStore: () => store, getCloudSync: () => null, getChromaSync: () => null };
     const embedder: Embedder = {
@@ -96,10 +96,26 @@ describe('explicit memory note revisions', () => {
       expect(duplicate).toMatchObject({ status: 'duplicate_found', existingId: original.id, existingLesson: 'Use staging first.' });
       expect(store.db.query('SELECT count(*) AS n FROM observations').get()).toEqual({ n: 1 });
 
-      const replacement = await saveMemoryChecked(manager as any, 'notes', {
-        title: 'Release policy changed', text: 'The release policy uses production.', supersedes: original.id,
+      const replay = await saveMemoryChecked(manager as any, 'notes', {
+        title: 'Release policy', text: 'The release policy uses staging.', lesson: 'Use staging first.',
       }, embedder);
-      expect(replacement).toMatchObject({ success: true, superseded: original.id });
+      expect(replay).toMatchObject({ success: true, id: original.id });
+      expect(replay).not.toHaveProperty('superseded');
+      expect(store.db.query('SELECT count(*) AS n FROM observations').get()).toEqual({ n: 1 });
+      expect(store.db.query("SELECT count(*) AS n FROM invalidated_observations WHERE observation_id = ?")
+        .get(original.id)).toEqual({ n: 0 });
+
+      const revision = await saveMemoryChecked(manager as any, 'notes', {
+        title: ' Release policy ', text: 'The release policy uses production.', lesson: 'Use production after approval.',
+      }, embedder);
+      expect(revision).toMatchObject({ success: true, superseded: original.id });
+      expect(store.db.query('SELECT replaced_by FROM invalidated_observations WHERE observation_id = ?')
+        .get(original.id)).toEqual({ replaced_by: revision.id });
+
+      const replacement = await saveMemoryChecked(manager as any, 'notes', {
+        title: 'Release policy changed', text: 'The release policy uses canary.', supersedes: revision.id,
+      }, embedder);
+      expect(replacement).toMatchObject({ success: true, superseded: revision.id });
       await new Promise<void>(resolve => setImmediate(resolve));
       expect(store.db.query('SELECT bit_signature FROM local_vectors WHERE key = ?')
         .get(`observations:${replacement.id}`)).not.toBeNull();
