@@ -31,6 +31,15 @@ function resolveProject(defaultProject: string, input: SaveMemoryInput): string 
   return (input.project?.trim() ? input.project : '') || metadataProject || defaultProject;
 }
 
+function normalizeAuthoredTitle(title: string): string {
+  return title.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function isSameAuthoredTitle(input: SaveMemoryInput, existingTitle: string): boolean {
+  return typeof input.title === 'string' && input.title.trim().length > 0
+    && normalizeAuthoredTitle(input.title) === normalizeAuthoredTitle(existingTitle);
+}
+
 function buildMemoryContent(input: SaveMemoryInput) {
   const text = input.text.trim();
   if (!text) throw new Error('Memory text must not be empty');
@@ -64,7 +73,7 @@ export async function saveMemoryChecked(
   const previous = saveTails.get(key) ?? Promise.resolve();
   const current = previous.catch(() => undefined).then(async () => {
     const duplicate = await findNearDuplicate(dbManager, project, input, activeEmbedder);
-    if (duplicate) return {
+    if (duplicate && !isSameAuthoredTitle(input, duplicate.title)) return {
       success: false,
       status: 'duplicate_found',
       existingId: duplicate.id,
@@ -72,7 +81,9 @@ export async function saveMemoryChecked(
       duplicate: true,
       message: `Memory resembles observation #${duplicate.id} (cosine similarity ${duplicate.similarity.toFixed(3)})`,
     };
-    const result = saveMemory(dbManager, defaultProject, input);
+    const isRevision = duplicate && buildMemoryContent(input).narrative !== duplicate.narrative;
+    const saveInput = isRevision ? { ...input, supersedes: duplicate.id } : input;
+    const result = saveMemory(dbManager, defaultProject, saveInput);
     if (!result.duplicate) scheduleSavedMemoryIndex(dbManager, result.id, activeEmbedder);
     return result;
   });
@@ -100,7 +111,7 @@ async function findNearDuplicate(
   project: string,
   input: SaveMemoryInput,
   embedder: Embedder,
-): Promise<{ id: number; lesson: string; similarity: number } | null> {
+): Promise<{ id: number; title: string; narrative: string; lesson: string; similarity: number } | null> {
   try {
     const index = new SQLiteVecIndex(dbManager.getConnection(), embedder.modelId, embedder.dims);
     dbManager.getConnection().run(`CREATE TABLE IF NOT EXISTS invalidated_observations (
@@ -134,7 +145,7 @@ async function findNearDuplicate(
     const existing = rows.find(row => `observations:${row.id}` === nearest.key);
     if (!existing) return null;
     const lesson = existing.narrative.match(/^Lesson:\s*(.+)$/m)?.[1] ?? existing.narrative;
-    return { id: existing.id, lesson, similarity };
+    return { id: existing.id, title: existing.title, narrative: existing.narrative, lesson, similarity };
   } catch (error) {
     logger.warn('HTTP', 'Near-duplicate guard unavailable; saving memory', { project }, error instanceof Error ? error : undefined);
     return null;
