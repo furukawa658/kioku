@@ -16,7 +16,7 @@ jobs:
         include:
           - { target: win32-x64, os: windows-latest }
           - { target: darwin-x64, os: macos-15-intel }
-          - { target: darwin-arm64, os: macos-15 }
+          - { target: darwin-arm64, os: macos-latest }
           - { target: linux-x64, os: ubuntu-24.04 }
           - { target: linux-arm64, os: ubuntu-24.04-arm }
     runs-on: ${{ matrix.os }}
@@ -29,9 +29,6 @@ jobs:
         with:
           node-version: '24'
       - uses: oven-sh/setup-bun@v2
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.17.0
       - name: Install root dependencies
         working-directory: .
         run: npm install --ignore-scripts

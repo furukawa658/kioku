@@ -59,14 +59,22 @@ export async function stageSemantic(repo, runtime) {
     const destination = path.join(runtime, 'node_modules', name);
     await rm(destination, { recursive: true, force: true });
     await mkdir(path.dirname(destination), { recursive: true });
+    await mkdir(destination, { recursive: true });
+    await cp(path.join(source, 'package.json'), path.join(destination, 'package.json'));
     if (name === 'onnxruntime-node') {
-      await mkdir(destination, { recursive: true });
-      for (const item of ['package.json', 'dist', `bin/napi-v6/${process.platform}/${process.arch}`]) {
-        await cp(path.join(source, item), path.join(destination, item), {
-          recursive: true, filter: file => !excludedBinaries.test(path.basename(file)),
+      await cp(path.join(source, 'dist'), path.join(destination, 'dist'), {
+        recursive: true, filter: file => !/\.(?:d\.ts|map)$/i.test(file),
+      });
+      await cp(path.join(source, `bin/napi-v6/${process.platform}/${process.arch}`), path.join(destination, `bin/napi-v6/${process.platform}/${process.arch}`), {
+        recursive: true, filter: file => !excludedBinaries.test(path.basename(file)),
+      });
+    } else {
+      for (const format of ['cjs', 'esm']) {
+        await cp(path.join(source, 'dist', format), path.join(destination, 'dist', format), {
+          recursive: true, filter: file => !/\.(?:d\.ts|map)$/i.test(file),
         });
       }
-    } else await cp(source, destination, { recursive: true, filter: file => path.basename(file) !== 'node_modules' });
+    }
     const manifest = JSON.parse(await readFile(path.join(source, 'package.json'), 'utf8'));
     notices.push(`${name}@${manifest.version}: ${manifest.license || 'see package license'}`);
     console.log(`SEMANTIC_PACKAGE ${index + 1}/${packages.length} ${name}`);

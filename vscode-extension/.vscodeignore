@@ -6,5 +6,4 @@ build.mjs
 render-icon.mjs
 stage-runtime.mjs
 stage-semantic.mjs
-native/**
 GATES.md

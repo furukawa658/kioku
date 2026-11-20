@@ -22,9 +22,6 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 24 }
       - uses: oven-sh/setup-bun@v2
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.17.0
       - run: bun install --frozen-lockfile
       - run: npm run typecheck:root
       - run: npm run build
