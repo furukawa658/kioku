@@ -81,6 +81,7 @@ export class WorkStateRoutes extends BaseRouteHandler {
   setupRoutes(app: express.Application): void {
     app.post('/api/work-state/entries', validateBody(workStateWriteSchema), this.handleWrite.bind(this));
     app.post('/api/work-state/clear', validateBody(workStateClearSchema), this.handleClear.bind(this));
+    app.get('/api/work-state/read-context', this.handleReadContext());
     app.get('/api/work-state', this.handleRead());
     app.get('/api/work-state/export', this.handleRead(true));
   }
@@ -176,6 +177,26 @@ export class WorkStateRoutes extends BaseRouteHandler {
     res.send(openLines.length > 0
       ? fitWorkStateLines(`${saved} Still open in it:`, openLines, WORK_STATE_SECTION_CHARACTER_LIMIT)
       : `${saved} Nothing in it is open now.`);
+  });
+
+  private handleReadContext = () => this.wrapHandler((req: Request, res: Response): void => {
+    if (isForeignBrowserRead(req)) {
+      res.status(403).json({ error: 'Forbidden', message: 'Work-state reads from another browser page are not allowed' });
+      return;
+    }
+    const cwd = typeof req.query.cwd === 'string' ? req.query.cwd : '';
+    if (!cwd.trim()) {
+      this.badRequest(res, 'cwd is required');
+      return;
+    }
+    const checkout = getProjectContext(cwd);
+    const store = this.dbManager.getSessionStore();
+    res.json({
+      primary: checkout.primary,
+      projects: checkout.allProjects,
+      readProjects: store.getProjectReadKeys(checkout.allProjects),
+      localDeviceId: store.getLocalSyncDeviceId(),
+    });
   });
 
   private handleRead = (exportHistory = false) => this.wrapHandler((req: Request, res: Response): void => {

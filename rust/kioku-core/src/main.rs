@@ -1,5 +1,6 @@
 mod mcp;
 mod search;
+mod work_state;
 
 use std::path::PathBuf;
 

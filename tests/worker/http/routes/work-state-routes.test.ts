@@ -90,6 +90,31 @@ function read(query: Record<string, string>): Promise<Response> {
   return fetch(`http://127.0.0.1:${port}/api/work-state?${new URLSearchParams(query)}`);
 }
 
+function readContext(query: Record<string, string>): Promise<Response> {
+  return fetch(`http://127.0.0.1:${port}/api/work-state/read-context?${new URLSearchParams(query)}`);
+}
+
+describe('work-state read context', () => {
+  it('returns the resolved project scope for Rust local reads', async () => {
+    store.setLocalSyncDeviceId('device-a');
+    const response = await readContext({ cwd: checkout });
+    expect(response.status).toBe(200);
+    const context = await response.json();
+    expect(context).toEqual({
+      primary: getProjectContext(checkout).primary,
+      projects: getProjectContext(checkout).allProjects,
+      readProjects: store.getProjectReadKeys(getProjectContext(checkout).allProjects),
+      localDeviceId: 'device-a',
+    });
+  });
+
+  it('requires cwd for resolved project scope', async () => {
+    const response = await readContext({});
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: 'cwd is required' });
+  });
+});
+
 describe('complete work-state export', () => {
   it('exports every ordered patch and closure beyond the MCP text limit without widening the project or list', async () => {
     for (let index = 0; index < 80; index++) {
