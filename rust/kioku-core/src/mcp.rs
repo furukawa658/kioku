@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
-use crate::search;
+use crate::{search, work_state};
 
 pub fn serve(database: &PathBuf, worker_url: &str) -> Result<()> {
     let stdin = io::stdin();
@@ -65,7 +65,7 @@ fn initialize(params: &Value) -> std::result::Result<Value, Value> {
         "protocolVersion": protocol,
         "capabilities": {"tools": {}},
         "serverInfo": {"name": "kioku-rust", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": "Use search, then timeline, then get_observations. Invalidation is local; save_memory and work-state tools are delegated to the existing local kioku worker."
+        "instructions": "Use search, then timeline, then get_observations. Search, invalidation, and work-state reads use local SQLite; work-state reads resolve project aliases through the existing worker. save_memory and work-state writes are delegated to that worker."
     }))
 }
 
@@ -99,7 +99,11 @@ fn tools_list() -> std::result::Result<Value, Value> {
                 "replacedBy":{"type":"integer","minimum":1}, "restore":{"type":"boolean"}
             }, "required":["id"], "additionalProperties":false
         })),
-        tool("work_state_read", "Read work state through the compatible kioku worker.", json!({"type":"object","additionalProperties":true})),
+        tool("work_state_read", "Read local work state with project aliases resolved by the compatible kioku worker.", json!({
+            "type":"object", "properties": {
+                "list":{"type":"string"}, "includeClosed":{"type":"boolean"}, "includeStale":{"type":"boolean"}
+            }, "additionalProperties":false
+        })),
         tool("work_state_write", "Write work state through the compatible kioku worker.", json!({"type":"object","additionalProperties":true}))
     ]}))
 }
@@ -142,18 +146,56 @@ fn call_tool(
                 "/api/work-state/entries",
                 &work_state_body(arguments),
             )?)),
-            "work_state_read" => Ok(Value::String(worker_get_text(
-                worker_url,
-                "/api/work-state",
-                &work_state_query(arguments),
-            )?)),
+            "work_state_read" => {
+                let context = worker_json_get_optional(
+                    worker_url,
+                    "/api/work-state/read-context",
+                    &work_state_context_query(),
+                )?;
+                match context {
+                    Some(context) => Ok(Value::String(work_state::read(
+                        database, &arguments, &context,
+                    )?)),
+                    None => Ok(Value::String(worker_get_text(
+                        worker_url,
+                        "/api/work-state",
+                        &work_state_query(arguments.clone()),
+                    )?)),
+                }
+            }
             _ => anyhow::bail!("Unknown tool: {name}"),
         }
     })();
     match result {
+        Ok(value) if name == "work_state_read" => Ok(work_state_text_result(value, false)),
         Ok(value) => Ok(text_result(value, false)),
-        Err(error) => Ok(text_result(json!(error.to_string()), true)),
+        Err(error) => Ok(text_result(json!(format!("{error:#}")), true)),
     }
+}
+
+fn work_state_text_result(value: Value, is_error: bool) -> Value {
+    const MAX_BYTES: usize = 32 * 1024;
+    const SUFFIX: &str = "\n[Work state shortened. Export the complete ordered history with GET /api/work-state/export on the worker port (CLAUDE_MEM_WORKER_PORT in ~/.claude-mem/settings.json), using the same cwd and optional list; closed items are included.]";
+    let mut text = if let Value::String(text) = value {
+        text
+    } else {
+        serde_json::to_string(&value).unwrap_or_else(|_| "null".to_owned())
+    };
+    let truncated = text.len() > MAX_BYTES;
+    if truncated {
+        let budget = MAX_BYTES.saturating_sub(SUFFIX.len());
+        let mut end = budget.min(text.len());
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        text.push_str(SUFFIX);
+    }
+    json!({
+        "content":[{"type":"text","text":text}],
+        "isError":is_error,
+        "_meta":{"claude-mem/truncated":truncated}
+    })
 }
 
 fn text_result(value: Value, is_error: bool) -> Value {
@@ -183,16 +225,23 @@ fn work_state_body(arguments: Value) -> Value {
     Value::Object(body)
 }
 
-fn work_state_query(arguments: Value) -> Vec<(String, String)> {
-    let mut query = vec![(
+fn work_state_context_query() -> Vec<(String, String)> {
+    vec![(
         "cwd".to_owned(),
         std::env::current_dir()
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned(),
-    )];
+    )]
+}
+
+fn work_state_query(arguments: Value) -> Vec<(String, String)> {
+    let mut query = work_state_context_query();
     if let Some(object) = arguments.as_object() {
         for (key, value) in object {
+            if key == "cwd" {
+                continue;
+            }
             if let Some(value) = value.as_str() {
                 query.push((key.clone(), value.to_owned()));
             } else if let Some(value) = value.as_bool() {
@@ -228,7 +277,8 @@ fn worker_text_post(worker_url: &str, path: &str, body: &Value) -> Result<String
 }
 
 fn worker_get_text(worker_url: &str, path: &str, query: &[(String, String)]) -> Result<String> {
-    let mut request = ureq::get(&format!("{}{}", worker_url.trim_end_matches('/'), path));
+    let mut request = ureq::get(&format!("{}{}", worker_url.trim_end_matches('/'), path))
+        .timeout(Duration::from_secs(5));
     for (key, value) in query {
         request = request.query(key, value);
     }
@@ -237,6 +287,26 @@ fn worker_get_text(worker_url: &str, path: &str, query: &[(String, String)]) -> 
         .context("Could not query kioku worker")?
         .into_string()
         .context("Worker returned invalid text")
+}
+
+fn worker_json_get_optional(
+    worker_url: &str,
+    path: &str,
+    query: &[(String, String)],
+) -> Result<Option<Value>> {
+    let mut request = ureq::get(&format!("{}{}", worker_url.trim_end_matches('/'), path))
+        .timeout(Duration::from_secs(5));
+    for (key, value) in query {
+        request = request.query(key, value);
+    }
+    match request.call() {
+        Ok(response) => response
+            .into_json::<Value>()
+            .map(Some)
+            .context("Worker returned invalid JSON"),
+        Err(ureq::Error::Status(404, _)) => Ok(None),
+        Err(error) => Err(error).context("Could not query kioku worker"),
+    }
 }
 
 fn worker_semantic_observations(worker_url: &str, arguments: &Value) -> Result<Vec<Value>> {
@@ -402,6 +472,15 @@ mod tests {
                 .expect("invalidation response");
         assert_eq!(response["success"], true);
         assert_eq!(response["invalidated"], true);
+    }
+
+    #[test]
+    fn work_state_text_respects_the_mcp_byte_budget() {
+        let response = work_state_text_result(Value::String("x".repeat(40 * 1024)), false);
+        let text = response["content"][0]["text"].as_str().expect("text");
+        assert!(text.len() <= 32 * 1024);
+        assert!(text.ends_with("closed items are included.]"));
+        assert_eq!(response["_meta"]["claude-mem/truncated"], true);
     }
 
     #[test]

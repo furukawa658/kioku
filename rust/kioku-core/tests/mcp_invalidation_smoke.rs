@@ -18,6 +18,7 @@ fn mcp_process_invalidates_without_a_worker() {
     drop(connection);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_kioku-core"))
+        .env_remove("CLAUDE_MEM_WORKER_URL")
         .arg("--database")
         .arg(&database)
         .arg("--worker-url")

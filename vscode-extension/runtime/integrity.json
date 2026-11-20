@@ -125,7 +125,7 @@
     "scripts/context-read-worker.cjs": "6acfc0f0c6c32d9c439872e0c5e4f614861ca4f2d2e072a83feae9934156281c",
     "scripts/mcp-server.cjs": "af4aef4baa0b4e622bc8801df9aa2973a44b05fc42eee0a6bfcdf70ebd0ba57e",
     "scripts/work-view-read-worker.cjs": "e595c5e4c3c90edc5d3df2ccc30d941ee9b40a7a60e70cb394fa8ad7a93947d4",
-    "scripts/worker-service.cjs": "ec32d51f73d5e5a02dcffdbdc03049741b520928959a216cb4d7c7425c7896ea",
+    "scripts/worker-service.cjs": "4a8a1fb79e73cae41319fa078aec28f15311e19db644acf1b879e2820c3bb502",
     "semantic/transformers.mjs": "9d8d2fd083e2dd515d9b103059c3b9de206e030b5f192068103247c874029dd3"
   }
 }
