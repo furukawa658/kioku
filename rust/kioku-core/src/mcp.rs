@@ -1,5 +1,6 @@
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
@@ -75,7 +76,8 @@ fn tools_list() -> std::result::Result<Value, Value> {
             "properties": {
                 "query":{"type":"string"}, "limit":{"type":"integer"}, "offset":{"type":"integer"},
                 "project":{"type":"string"}, "type":{"type":"string"}, "obs_type":{"type":"string"},
-                "concepts":{"type":"string"}, "orderBy":{"type":"string","enum":["relevance","date_desc","date_asc"]}
+                "concepts":{"type":"string"}, "semantic":{"type":"boolean"},
+                "orderBy":{"type":"string","enum":["relevance","date_desc","date_asc"]}
             }, "required":["query"], "additionalProperties":false
         })),
         tool("dumb_search", "Fast SQLite keyword search without semantic ranking.", json!({
@@ -116,7 +118,14 @@ fn call_tool(
         .unwrap_or_else(|| json!({}));
     let result = (|| -> Result<Value> {
         match name {
-            "search" | "dumb_search" => Ok(search::search_index(database, &arguments)?),
+            "search" => {
+                let semantic =
+                    worker_semantic_observations(worker_url, &arguments).unwrap_or_default();
+                Ok(search::search_index_with_semantic(
+                    database, &arguments, &semantic,
+                )?)
+            }
+            "dumb_search" => Ok(search::search_index(database, &arguments)?),
             "timeline" => Ok(search::timeline(database, &arguments)?),
             "get_observations" => Ok(search::get_observations(database, &arguments)?),
             "save_memory" => {
@@ -225,6 +234,92 @@ fn worker_get_text(worker_url: &str, path: &str, query: &[(String, String)]) -> 
         .context("Could not query kioku worker")?
         .into_string()
         .context("Worker returned invalid text")
+}
+
+fn worker_semantic_observations(worker_url: &str, arguments: &Value) -> Result<Vec<Value>> {
+    if arguments
+        .get("semantic")
+        .and_then(Value::as_bool)
+        .is_some_and(|enabled| !enabled)
+    {
+        return Ok(Vec::new());
+    }
+    let query = arguments
+        .get("query")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let limit = arguments
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|value| value.min(100) as usize)
+        .unwrap_or(20);
+    let offset = arguments
+        .get("offset")
+        .and_then(Value::as_u64)
+        .map(|value| value.min(1000) as usize)
+        .unwrap_or(0);
+    let candidate_limit = offset.saturating_add(limit).clamp(100, 1000);
+    let url = format!("{}/api/search", worker_url.trim_end_matches('/'));
+    let mut request = ureq::get(&url).timeout(Duration::from_millis(1500));
+    request = request
+        .query("query", query)
+        .query("type", "observations")
+        .query("format", "json")
+        .query("limit", &candidate_limit.to_string())
+        .query("offset", "0")
+        .query("orderBy", "relevance");
+    if let Some(object) = arguments.as_object() {
+        if let Some(observation_type) = object
+            .get("type")
+            .and_then(Value::as_str)
+            .filter(|value| !["all", "observations", "sessions", "prompts"].contains(value))
+            .filter(|_| object.get("obs_type").is_none())
+        {
+            request = request.query("obs_type", observation_type);
+        }
+        for key in [
+            "project",
+            "projects",
+            "obs_type",
+            "concepts",
+            "files",
+            "dateStart",
+            "dateEnd",
+            "platformSource",
+        ] {
+            let Some(value) = object.get(key) else {
+                continue;
+            };
+            let value = if let Some(value) = value.as_str() {
+                value.to_owned()
+            } else if let Some(values) = value.as_array() {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            } else {
+                continue;
+            };
+            if !value.is_empty() {
+                request = request.query(key, &value);
+            }
+        }
+    }
+    let response = request
+        .call()
+        .context("Could not query semantic candidates from kioku worker")?
+        .into_json::<Value>()
+        .context("Worker returned invalid semantic search JSON")?;
+    Ok(response["observations"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default())
 }
 
 fn write_json(writer: &mut impl Write, value: &Value) -> Result<()> {

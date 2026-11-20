@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -31,13 +32,17 @@ pub fn open_read_only(path: &PathBuf) -> Result<Connection> {
 }
 
 pub fn search(path: &PathBuf, arguments: &JsonValue) -> Result<JsonValue> {
+    search_with_limit(path, arguments, 100)
+}
+
+fn search_with_limit(path: &PathBuf, arguments: &JsonValue, limit_max: usize) -> Result<JsonValue> {
     let connection = open_read_only(path)?;
     let query = arguments
         .get("query")
         .and_then(JsonValue::as_str)
         .unwrap_or_default()
         .trim();
-    let limit = bounded_usize(arguments, "limit", 20, 100);
+    let limit = bounded_usize(arguments, "limit", 20, limit_max);
     let offset = bounded_usize(arguments, "offset", 0, i64::MAX as usize);
     let requested_category = arguments
         .get("type")
@@ -107,6 +112,108 @@ pub fn search_index(path: &PathBuf, arguments: &JsonValue) -> Result<JsonValue> 
         }
     }
     Ok(value)
+}
+
+pub fn search_index_with_semantic(
+    path: &PathBuf,
+    arguments: &JsonValue,
+    semantic: &[JsonValue],
+) -> Result<JsonValue> {
+    let mut value = search_index(path, arguments)?;
+    let query = arguments
+        .get("query")
+        .and_then(JsonValue::as_str)
+        .unwrap_or_default()
+        .trim();
+    let order = arguments
+        .get("orderBy")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("relevance");
+    let requested_type = arguments
+        .get("type")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("all");
+    let includes_observations = requested_type != "sessions" && requested_type != "prompts";
+    if query.is_empty() || order != "relevance" || !includes_observations || semantic.is_empty() {
+        return Ok(value);
+    }
+
+    let limit = bounded_usize(arguments, "limit", 20, 100);
+    let offset = bounded_usize(arguments, "offset", 0, i64::MAX as usize);
+    let candidate_limit = offset.saturating_add(limit).clamp(100, 1000);
+    let mut candidate_arguments = arguments.as_object().cloned().unwrap_or_default();
+    candidate_arguments.insert("type".into(), json!("observations"));
+    candidate_arguments.insert("limit".into(), json!(candidate_limit));
+    candidate_arguments.insert("offset".into(), json!(0));
+    let lexical = search_with_limit(
+        path,
+        &JsonValue::Object(candidate_arguments),
+        candidate_limit,
+    )?;
+    let lexical_rows = lexical["observations"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let fused = fuse_ranked_rows(&lexical_rows, semantic, limit, offset)
+        .into_iter()
+        .map(|row| index_row("observations", row))
+        .collect();
+    value
+        .as_object_mut()
+        .expect("search index result is an object")
+        .insert("observations".into(), JsonValue::Array(fused));
+    Ok(value)
+}
+
+fn fuse_ranked_rows(
+    lexical: &[JsonValue],
+    semantic: &[JsonValue],
+    limit: usize,
+    offset: usize,
+) -> Vec<JsonValue> {
+    const RRF_K: f64 = 60.0;
+    let mut candidates: HashMap<i64, (f64, usize, JsonValue)> = HashMap::new();
+    let mut insertion_order = 0;
+
+    for ranked_rows in [lexical, semantic] {
+        let mut seen = HashSet::new();
+        for (index, row) in ranked_rows.iter().enumerate() {
+            let Some(id) = row.get("id").and_then(JsonValue::as_i64) else {
+                continue;
+            };
+            if !seen.insert(id) {
+                continue;
+            }
+            let contribution = 1.0 / (RRF_K + index as f64 + 1.0);
+            candidates
+                .entry(id)
+                .and_modify(|(score, _, existing)| {
+                    *score += contribution;
+                    if existing.as_object().is_none() {
+                        *existing = row.clone();
+                    }
+                })
+                .or_insert_with(|| {
+                    let order = insertion_order;
+                    insertion_order += 1;
+                    (contribution, order, row.clone())
+                });
+        }
+    }
+
+    let mut ranked = candidates.into_values().collect::<Vec<_>>();
+    ranked.sort_by(|left, right| {
+        right
+            .0
+            .total_cmp(&left.0)
+            .then_with(|| left.1.cmp(&right.1))
+    });
+    ranked
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|(_, _, row)| row)
+        .collect()
 }
 
 fn index_row(category: &str, row: JsonValue) -> JsonValue {
@@ -632,6 +739,48 @@ mod tests {
         assert_eq!(row["title"], "Current API handler");
         assert!(row.get("narrative").is_none());
         assert!(row["excerpt"].as_str().expect("excerpt").chars().count() <= 180);
+    }
+
+    #[test]
+    fn reciprocal_rank_fusion_rewards_candidates_from_both_legs() {
+        let lexical = vec![json!({"id":1}), json!({"id":2}), json!({"id":3})];
+        let semantic = vec![json!({"id":2}), json!({"id":4}), json!({"id":1})];
+
+        let fused = fuse_ranked_rows(&lexical, &semantic, 3, 0);
+        let ids = fused
+            .iter()
+            .map(|row| row["id"].as_i64().expect("id"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec![2, 1, 4]);
+    }
+
+    #[test]
+    fn search_index_includes_semantic_only_candidates() {
+        let (_directory, path) = fixture();
+        let semantic = vec![json!({
+            "id": 3,
+            "project": "kioku",
+            "type": "discovery",
+            "title": "Semantic-only match",
+            "narrative": "Token refresh pattern without the literal keyword",
+            "created_at_epoch": 3000
+        })];
+
+        let result = search_index_with_semantic(
+            &path,
+            &json!({"query":"renews token", "project":"kioku", "limit":5}),
+            &semantic,
+        )
+        .expect("hybrid search index");
+        let ids = result["observations"]
+            .as_array()
+            .expect("observations")
+            .iter()
+            .map(|row| row["id"].as_i64().expect("id"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec![2, 3]);
     }
 
     #[test]
