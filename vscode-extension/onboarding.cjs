@@ -31,12 +31,17 @@ function globalInstructionsPath(home, platform = process.platform, env = process
 }
 
 function mcpConfig(options) {
+  const rustExecutable = process.env.KIOKU_RUST_MCP_EXE?.trim();
+  const selected = rustExecutable ? {
+    command: rustExecutable,
+    args: ['--database', path.join(options.dataDir, 'claude-mem.db'), '--worker-url', options.url],
+  } : { command: options.command, args: [options.mcp] };
   return JSON.stringify({
     mcpServers: {
       kioku: {
         type: 'stdio',
-        command: options.command,
-        args: [options.mcp],
+        command: selected.command,
+        args: selected.args,
         env: options.overrides
       }
     }

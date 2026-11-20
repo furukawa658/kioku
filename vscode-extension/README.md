@@ -119,6 +119,8 @@ Run `vsce package --target <target> --no-dependencies --allow-missing-repository
 
 For a host-native single executable, run `npm run build:cli-binary` from the repository root and keep its generated `dist/binaries/package.json`, lock file, and `node_modules` beside the executable. That package installs the native `sqlite-vec` platform extension and the optional media sidecar. The VSIX keeps the executable separate because adding both the compiled worker and bundled Bun runtime would exceed the Marketplace package limit.
 
+The staged Rust MCP core is available with `npm run build:rust-mcp`. Set `KIOKU_RUST_MCP_EXE` to the generated `rust/target/release/kioku-core.exe` (or the host-specific executable on macOS/Linux) before starting VS Code. The Rust process serves `search`, `timeline`, and `get_observations` directly from the existing `claude-mem.db`; write and work-state calls are delegated to the existing local kioku worker. The switch is opt-in and leaves the bundled Bun MCP path unchanged by default.
+
 ## Acknowledgments and license
 
 Developed from [claude-mem](https://github.com/thedotmack/claude-mem). Distributed under Apache-2.0; original copyright and attribution notices are retained in LICENSE and NOTICE. kioku is not affiliated with the Claude-Mem project or cmem.ai.

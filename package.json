@@ -77,6 +77,7 @@
     "sync-marketplace:force": "node scripts/sync-marketplace.cjs --force",
     "build:binaries": "node scripts/build-worker-binary.js",
     "build:cli-binary": "bun scripts/build-native-worker.js --native",
+    "build:rust-mcp": "cargo build --manifest-path rust/Cargo.toml --release --package kioku-core",
     "worker:logs": "node scripts/worker-logs.cjs",
     "worker:tail": "node scripts/worker-logs.cjs --follow",
     "changelog:generate": "node scripts/generate-changelog.js",
