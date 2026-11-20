@@ -47,6 +47,7 @@ src/ui/viewer.html
 plugin/.cli-installed
 
 plugin/scripts/claude-mem
+/rust/target/
 
 CONTRIB_NOTES.md
 CLAUDE.local.md

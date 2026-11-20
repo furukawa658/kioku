@@ -1,5 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 const { END, START, globalInstructionsPath, mcpConfig, upsertInstructions } = require('../onboarding.cjs');
 
 test('instruction injection is idempotent and preserves surrounding text', () => {
@@ -20,6 +21,26 @@ test('MCP snippet names the shared bundled runtime and environment', () => {
   assert.equal(parsed.mcpServers.kioku.command, 'C:/extension/runtime/bun.exe');
   assert.deepEqual(parsed.mcpServers.kioku.args, ['C:/extension/runtime/scripts/mcp-server.cjs']);
   assert.equal(parsed.mcpServers.kioku.env.KIOKU_SQLITE_VEC_ENABLED, 'true');
+});
+
+test('MCP snippet exports the staged Rust core for other clients', () => {
+  const previous = process.env.KIOKU_RUST_MCP_EXE;
+  process.env.KIOKU_RUST_MCP_EXE = 'C:/tools/kioku-core.exe';
+  try {
+    const parsed = JSON.parse(mcpConfig({
+      dataDir: 'C:/Users/test/.claude-mem', url: 'http://127.0.0.1:37777',
+      command: 'C:/extension/runtime/bun.exe', mcp: 'C:/extension/runtime/scripts/mcp-server.cjs',
+      overrides: { CLAUDE_MEM_DATA_DIR: 'C:/Users/test/.claude-mem' },
+    }));
+    assert.equal(parsed.mcpServers.kioku.command, 'C:/tools/kioku-core.exe');
+    assert.deepEqual(parsed.mcpServers.kioku.args, [
+      '--database', path.join('C:/Users/test/.claude-mem', 'claude-mem.db'),
+      '--worker-url', 'http://127.0.0.1:37777',
+    ]);
+  } finally {
+    if (previous === undefined) delete process.env.KIOKU_RUST_MCP_EXE;
+    else process.env.KIOKU_RUST_MCP_EXE = previous;
+  }
 });
 
 test('global instruction targets stay under the VS Code user prompts directory', () => {
