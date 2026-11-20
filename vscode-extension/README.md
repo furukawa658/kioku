@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/furukawa658/kioku/main/vscode-extension/media/brain.png" alt="kioku icon" width="128" height="128">
-</p>
-
 # kioku
 
 **Stop your AI agent from making the same mistake twice.**
