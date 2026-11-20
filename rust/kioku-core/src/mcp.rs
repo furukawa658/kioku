@@ -65,7 +65,7 @@ fn initialize(params: &Value) -> std::result::Result<Value, Value> {
         "protocolVersion": protocol,
         "capabilities": {"tools": {}},
         "serverInfo": {"name": "kioku-rust", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": "Use search, then timeline, then get_observations. save_memory and work-state tools are delegated to the existing local kioku worker."
+        "instructions": "Use search, then timeline, then get_observations. Invalidation is local; save_memory and work-state tools are delegated to the existing local kioku worker."
     }))
 }
 
@@ -93,7 +93,12 @@ fn tools_list() -> std::result::Result<Value, Value> {
             "required":["ids"], "additionalProperties":false
         })),
         tool("save_memory", "Save a durable local memory through the compatible kioku worker.", json!({"type":"object","additionalProperties":true})),
-        tool("invalidate_memory", "Invalidate or restore a local memory through the compatible kioku worker.", json!({"type":"object","additionalProperties":true})),
+        tool("invalidate_memory", "Invalidate or restore a local memory in the existing SQLite database.", json!({
+            "type":"object", "properties": {
+                "id":{"type":"integer","minimum":1}, "reason":{"type":"string"},
+                "replacedBy":{"type":"integer","minimum":1}, "restore":{"type":"boolean"}
+            }, "required":["id"], "additionalProperties":false
+        })),
         tool("work_state_read", "Read work state through the compatible kioku worker.", json!({"type":"object","additionalProperties":true})),
         tool("work_state_write", "Write work state through the compatible kioku worker.", json!({"type":"object","additionalProperties":true}))
     ]}))
@@ -131,9 +136,7 @@ fn call_tool(
             "save_memory" => {
                 worker_json(worker_url, "POST", "/api/memory/save", &with_cwd(arguments))
             }
-            "invalidate_memory" => {
-                worker_json(worker_url, "POST", "/api/memory/invalidate", &arguments)
-            }
+            "invalidate_memory" => Ok(search::invalidate_memory(database, &arguments)?),
             "work_state_write" => Ok(Value::String(worker_text_post(
                 worker_url,
                 "/api/work-state/entries",
@@ -372,6 +375,33 @@ mod tests {
                 "work_state_write"
             ]
         );
+    }
+
+    #[test]
+    fn invalidation_does_not_require_the_worker() {
+        let directory = tempfile::tempdir().expect("temp database directory");
+        let database = directory.path().join("claude-mem.db");
+        let connection = rusqlite::Connection::open(&database).expect("open fixture database");
+        connection
+            .execute("CREATE TABLE observations (id INTEGER PRIMARY KEY)", [])
+            .expect("create observations");
+        connection
+            .execute("INSERT INTO observations (id) VALUES (1)", [])
+            .expect("insert observation");
+        drop(connection);
+
+        let result = call_tool(
+            &database,
+            "http://127.0.0.1:1",
+            &json!({"name":"invalidate_memory","arguments":{"id":1,"reason":"outdated"}}),
+        )
+        .expect("invalidate through MCP");
+        assert_eq!(result["isError"], false);
+        let response: Value =
+            serde_json::from_str(result["content"][0]["text"].as_str().expect("text"))
+                .expect("invalidation response");
+        assert_eq!(response["success"], true);
+        assert_eq!(response["invalidated"], true);
     }
 
     #[test]
