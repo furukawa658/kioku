@@ -195,6 +195,7 @@
     "typescript": "^6.0.3",
     "unified": "^11.0.5",
     "unist-util-visit": "^5.1.0",
+    "usearch": "^2.26.5",
     "zod": "^4.4.3"
   },
   "trustedDependencies": [

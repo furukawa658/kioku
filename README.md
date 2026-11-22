@@ -68,17 +68,17 @@ The lesson comes right back. To make Copilot search and record reusable lessons 
 
 kioku is optimized for a local, single-user workload: small lessons are written or revised over time, then searched and read back one at a time. SQLite fits that pattern without a server process or network hop. Structured records, FTS5 text indexes, and `sqlite-vec` embeddings live in the same local database, so deployment remains a single-file workflow.
 
-The worker configures WAL mode, `synchronous = NORMAL`, foreign keys, and a 5-second busy timeout. The optional Rust MCP core uses read-only SQLite connections for search and Work State reads, and opens a read-write connection only when it performs local invalidation. The bundled Bun MCP path remains the default, with the Rust core enabled explicitly through `KIOKU_RUST_MCP_EXE`.
+The worker configures WAL mode, `synchronous = NORMAL`, foreign keys, in-memory temporary storage, and a 5-second busy timeout. The optional Rust MCP core applies the same busy-timeout and temporary-storage settings, uses read-only SQLite connections for search and Work State reads, and opens a read-write connection only when it performs local invalidation. The bundled Bun MCP path remains the default, with the Rust core enabled explicitly through `KIOKU_RUST_MCP_EXE`.
 
-This is an architectural choice for kioku's current local workload, not a claim that SQLite wins every database benchmark. Performance-sensitive changes are evaluated against actual memory counts, search latency, startup time, and lock contention before replacing the storage engine or adding another index.
+This is an architectural choice for kioku's current local workload, not a claim that SQLite wins every database benchmark. Performance-sensitive changes are evaluated against actual memory counts, search latency, startup time, and lock contention before replacing the storage engine or adding another index. In the 0.8.0 benchmark, `temp_store=MEMORY` improved the measured insertion and FTS workload; `mmap_size`, a larger page cache, and USearch HNSW did not meet the adoption threshold.
 
-See [the full architecture discussion and adoption review](docs/gemini-db-architecture-2026-11-21.md).
+See [the full architecture discussion](docs/gemini-db-architecture-2026-11-21.md) and [the reproducible 0.8.0 benchmark results](docs/performance-benchmark-2026-11-22.md).
 
 ---
 
 ## Install
 
-1. Install from the **VS Code Marketplace** (`ext install ShunsukeF.kioku-search`), or open the Extensions view, select **Install from VSIX...**, and choose the build for your platform, for example `kioku-search-win32-x64-0.7.0.vsix`.
+1. Install from the **VS Code Marketplace** (`ext install ShunsukeF.kioku-search`), or open the Extensions view, select **Install from VSIX...**, and choose the build for your platform, for example `kioku-search-win32-x64-0.8.0.vsix`.
 2. Reload VS Code if prompted and open a trusted workspace folder.
 3. Click the **kioku** brain icon in the Activity Bar. On first launch, database initialization may take a moment; a memory count of `0` is normal.
 4. Enable **`kioku (local)`** in Copilot Chat's MCP tool list and approve tool access when prompted.

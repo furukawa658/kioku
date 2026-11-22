@@ -133,6 +133,7 @@ export function applySqliteConnectionPragmas(
   runRequiredPragma(db, `PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`, 'busy_timeout');
   runRequiredPragma(db, 'PRAGMA foreign_keys = ON', 'foreign_keys');
   runRequiredPragma(db, 'PRAGMA synchronous = NORMAL', 'synchronous');
+  runRequiredPragma(db, 'PRAGMA temp_store = MEMORY', 'temp_store');
   runRequiredPragma(db, `PRAGMA journal_size_limit = ${SQLITE_JOURNAL_SIZE_LIMIT_BYTES}`, 'journal_size_limit');
 
   if (enableIncrementalAutoVacuum && !hasUserTables(db)) {
