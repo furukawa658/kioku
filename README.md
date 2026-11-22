@@ -64,6 +64,18 @@ The lesson comes right back. To make Copilot search and record reusable lessons 
 
 ---
 
+## Why SQLite Is the Default
+
+kioku is optimized for a local, single-user workload: small lessons are written or revised over time, then searched and read back one at a time. SQLite fits that pattern without a server process or network hop. Structured records, FTS5 text indexes, and `sqlite-vec` embeddings live in the same local database, so deployment remains a single-file workflow.
+
+The worker configures WAL mode, `synchronous = NORMAL`, foreign keys, and a 5-second busy timeout. The optional Rust MCP core uses read-only SQLite connections for search and Work State reads, and opens a read-write connection only when it performs local invalidation. The bundled Bun MCP path remains the default, with the Rust core enabled explicitly through `KIOKU_RUST_MCP_EXE`.
+
+This is an architectural choice for kioku's current local workload, not a claim that SQLite wins every database benchmark. Performance-sensitive changes are evaluated against actual memory counts, search latency, startup time, and lock contention before replacing the storage engine or adding another index.
+
+See [the full architecture discussion and adoption review](docs/gemini-db-architecture-2026-11-21.md).
+
+---
+
 ## Install
 
 1. Install from the **VS Code Marketplace** (`ext install ShunsukeF.kioku-search`), or open the Extensions view, select **Install from VSIX...**, and choose the build for your platform, for example `kioku-search-win32-x64-0.7.0.vsix`.
