@@ -117,6 +117,15 @@ For a host-native single executable, run `npm run build:cli-binary` from the rep
 
 The staged Rust MCP core is available with `npm run build:rust-mcp`. Set `KIOKU_RUST_MCP_EXE` to the generated `rust/target/release/kioku-core.exe` (or the host-specific executable on macOS/Linux) before starting VS Code. The Rust process reads `dumb_search`, `timeline`, `get_observations`, and `work_state_read` from the existing `claude-mem.db`, and it handles `invalidate_memory` directly in that database. Work-state reads ask the existing worker to resolve the checkout's project aliases and device order before Rust reads and renders the local rows. `search` combines local SQLite FTS candidates with semantic candidates from the existing kioku worker by reciprocal-rank fusion; if the worker is unavailable, it falls back to local FTS. Pass `semantic: false` to force the local-only path. `save_memory` and `work_state_write` remain delegated to the existing worker. The switch is opt-in and leaves the bundled Bun MCP path unchanged by default.
 
+## Related tools
+
+| When you need... | Extension | Role |
+| --- | --- | --- |
+| Reusable rules from repeated corrections | [Ne](https://marketplace.visualstudio.com/items?itemName=ShunsukeF.ne-memory) | Turns recurring instructions into Copilot rules. |
+| Structured test and build diagnostics | [Zuma MCP](https://marketplace.visualstudio.com/items?itemName=ShunsukeF.inazuma-pwsh) | Returns concise failures from supported development tools. |
+| A reusable workflow from a completed task | [Waza](https://marketplace.visualstudio.com/items?itemName=ShunsukeF.waza) | Compiles a selected workflow into an Agent Skill. |
+| Context, rules, and overnight control | [Copilot Chat Power Pack](https://marketplace.visualstudio.com/items?itemName=ShunsukeF.vscode-chat-tools-pack) | Installs Tsugi, Eien, and Ne together. |
+
 ## Acknowledgments and license
 
 Developed from [claude-mem](https://github.com/thedotmack/claude-mem). Distributed under Apache-2.0; original copyright and attribution notices are retained in LICENSE and NOTICE. kioku is not affiliated with the Claude-Mem project or cmem.ai.
