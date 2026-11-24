@@ -695,22 +695,26 @@ describe('SessionStore migrations', () => {
     try {
       db.run('PRAGMA busy_timeout = 0');
       db.run('PRAGMA foreign_keys = OFF');
+      db.run('PRAGMA temp_store = DEFAULT');
 
       new SessionStore(db);
 
       expect((db.query('PRAGMA busy_timeout').get() as { timeout: number }).timeout).toBe(SQLITE_BUSY_TIMEOUT_MS);
       expect((db.query('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys).toBe(1);
       expect((db.query('PRAGMA synchronous').get() as { synchronous: number }).synchronous).toBe(1);
+      expect((db.query('PRAGMA temp_store').get() as { temp_store: number }).temp_store).toBe(2);
       expect((db.query('PRAGMA journal_size_limit').get() as { journal_size_limit: number }).journal_size_limit)
         .toBe(SQLITE_JOURNAL_SIZE_LIMIT_BYTES);
       expect((db.query('PRAGMA auto_vacuum').get() as { auto_vacuum: number }).auto_vacuum).toBe(2);
 
       db.run('PRAGMA busy_timeout = 0');
       db.run('PRAGMA foreign_keys = OFF');
+      db.run('PRAGMA temp_store = DEFAULT');
       new SessionSearch(db);
 
       expect((db.query('PRAGMA busy_timeout').get() as { timeout: number }).timeout).toBe(SQLITE_BUSY_TIMEOUT_MS);
       expect((db.query('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys).toBe(1);
+      expect((db.query('PRAGMA temp_store').get() as { temp_store: number }).temp_store).toBe(2);
     } finally {
       db.close();
     }

@@ -1,11 +1,13 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use rusqlite::types::Value;
-use rusqlite::{Connection, OpenFlags, Row, TransactionBehavior, params, params_from_iter};
+use rusqlite::{Connection, Row, TransactionBehavior, params, params_from_iter};
 use serde_json::{Map, Value as JsonValue, json};
+
+use crate::sqlite::{open_read_only, open_read_write};
 
 pub fn default_database_path() -> PathBuf {
     let root = std::env::var_os("CLAUDE_MEM_DATA_DIR")
@@ -24,15 +26,7 @@ pub fn default_database_path() -> PathBuf {
     root.join("claude-mem.db")
 }
 
-pub fn open_read_only(path: &PathBuf) -> Result<Connection> {
-    Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .with_context(|| format!("Cannot open kioku database at {}", path.display()))
-}
-
-pub fn invalidate_memory(path: &PathBuf, arguments: &JsonValue) -> Result<JsonValue> {
+pub fn invalidate_memory(path: &Path, arguments: &JsonValue) -> Result<JsonValue> {
     let arguments = arguments
         .as_object()
         .context("arguments must be an object")?;
@@ -66,11 +60,7 @@ pub fn invalidate_memory(path: &PathBuf, arguments: &JsonValue) -> Result<JsonVa
         None => false,
     };
 
-    let mut connection = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .with_context(|| format!("Cannot open kioku database at {}", path.display()))?;
+    let mut connection = open_read_write(path)?;
     connection.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS invalidated_observations (
@@ -155,11 +145,11 @@ pub fn invalidate_memory(path: &PathBuf, arguments: &JsonValue) -> Result<JsonVa
     }))
 }
 
-pub fn search(path: &PathBuf, arguments: &JsonValue) -> Result<JsonValue> {
+pub fn search(path: &Path, arguments: &JsonValue) -> Result<JsonValue> {
     search_with_limit(path, arguments, 100)
 }
 
-fn search_with_limit(path: &PathBuf, arguments: &JsonValue, limit_max: usize) -> Result<JsonValue> {
+fn search_with_limit(path: &Path, arguments: &JsonValue, limit_max: usize) -> Result<JsonValue> {
     let connection = open_read_only(path)?;
     let query = arguments
         .get("query")
@@ -226,7 +216,7 @@ fn search_with_limit(path: &PathBuf, arguments: &JsonValue, limit_max: usize) ->
     Ok(JsonValue::Object(result))
 }
 
-pub fn search_index(path: &PathBuf, arguments: &JsonValue) -> Result<JsonValue> {
+pub fn search_index(path: &Path, arguments: &JsonValue) -> Result<JsonValue> {
     let mut value = search(path, arguments)?;
     if let Some(categories) = value.as_object_mut() {
         for (category, rows) in categories.iter_mut() {
@@ -239,7 +229,7 @@ pub fn search_index(path: &PathBuf, arguments: &JsonValue) -> Result<JsonValue> 
 }
 
 pub fn search_index_with_semantic(
-    path: &PathBuf,
+    path: &Path,
     arguments: &JsonValue,
     semantic: &[JsonValue],
 ) -> Result<JsonValue> {
@@ -388,7 +378,7 @@ fn truncate_index_text(text: &str) -> String {
     }
 }
 
-pub fn get_observations(path: &PathBuf, arguments: &JsonValue) -> Result<JsonValue> {
+pub fn get_observations(path: &Path, arguments: &JsonValue) -> Result<JsonValue> {
     let connection = open_read_only(path)?;
     let ids = arguments
         .get("ids")
@@ -409,7 +399,7 @@ pub fn get_observations(path: &PathBuf, arguments: &JsonValue) -> Result<JsonVal
     Ok(JsonValue::Array(query_rows(&connection, &sql, &params)?))
 }
 
-pub fn timeline(path: &PathBuf, arguments: &JsonValue) -> Result<JsonValue> {
+pub fn timeline(path: &Path, arguments: &JsonValue) -> Result<JsonValue> {
     let connection = open_read_only(path)?;
     let anchor = arguments
         .get("anchor")

@@ -4,87 +4,155 @@
 
 **Stop your AI agent from making the same mistake twice.**
 
-kioku ("memory" in Japanese) gives GitHub Copilot Chat a long-term memory on your own PC. It does not dump chat logs. It records what happened, why the work succeeded or failed, and the lesson to apply next time, and any new chat can search those lessons.
+**kioku** ("memory" in Japanese) gives GitHub Copilot Chat a fast, persistent long-term memory directly on your PC. Instead of dumping noisy chat logs, it records **what happened**, **why it succeeded or failed**, and **the exact lesson to apply next time**, so any new chat session can recall and reuse hard-won project knowledge.
 
-One VSIX, no setup, fully offline. Search works in English and Japanese and uses no AI credits. Windows, macOS and Linux.
+- **One VSIX, zero setup:** No Node.js, Python, Docker, Chroma server, or external vector database is required.
+- **Native Rust MCP option:** A staged Rust MCP core uses the existing SQLite database directly for lower-overhead reads and search; the bundled Bun MCP path remains the default.
+- **Hybrid semantic + keyword search:** Local multilingual embeddings and SQLite FTS5 are combined with reciprocal rank fusion for both exact identifiers and natural-language questions.
+- **100% local memory:** Search and extractive summaries use no AI credits and send no memory data to external servers.
+- **Cross-platform:** Windows, macOS, and Linux.
 
 ![A lesson saved in one chat is found and used in a new chat](docs/demo.gif)
 
 *Scripted illustration of the kioku tool calls.*
 
-## Try it in 60 seconds
+---
 
-1. Install `ShunsukeF.kioku-search` and start "kioku (local)" in Copilot Chat's MCP list.
-2. Tell Copilot: `Save a lesson with kioku save_memory: outcome="failure", cause="Forgot --no-dependencies when packaging a VSIX", lesson="Always pass --no-dependencies to vsce package."`
-3. Open a new chat and ask: `Check kioku for lessons before I package a VSIX.` The lesson comes back.
+## Try It in 60 Seconds
 
-To make the agent search and save lessons on its own, see the instruction snippet in [vscode-extension/README.md](vscode-extension/README.md).
+1. Install **`ShunsukeF.kioku-search`** from the VS Code Marketplace and start **`kioku (local)`** in Copilot Chat's MCP tool list.
+2. Tell Copilot in any chat:
 
-## Why people use it
+   ```text
+   Save a lesson with kioku save_memory:
+   outcome="failure"
+   cause="Forgot --no-dependencies when packaging a VSIX"
+   lesson="Always pass --no-dependencies to vsce package."
+   ```
 
-- **Learn from successes and failures.** The agent saves the outcome, the cause and the lesson, so the same mistake is not repeated and what worked is reused.
-- **Memory that outlives a chat.** One local database holds what earlier chats decided and learned, so handoffs rest on recorded facts instead of guesses.
-- **Private by default.** No telemetry, no cloud sync, no external AI. Your memories stay on your PC.
+3. Open a brand-new chat and ask:
 
-kioku is developed as a fork of [claude-mem](https://github.com/thedotmack/claude-mem). It keeps claude-mem's worker, database and MCP tools, and is distributed under the same Apache-2.0 license.
+   ```text
+   Check kioku for lessons before I package a VSIX.
+   ```
 
-## What kioku adds to claude-mem
+The lesson comes right back. To make Copilot search and record reusable lessons automatically across sessions, use **kioku: Inject Copilot Instructions** or add the instruction snippet from [vscode-extension/README.md](vscode-extension/README.md).
 
-- **Lesson fields.** `save_memory` accepts `outcome`, `cause` and `lesson`, and `search` can select lessons with `concepts="lesson"`. The tool instructions ask the agent to record the cause and the lesson, not only progress or results.
-- **A self-contained VS Code extension.** One VSIX bundles the MCP server, the worker and the Bun runtime, and registers the MCP server for Copilot Chat. Node.js, Bun and Claude Code do not need to be installed.
-- **Offline meaning search.** A multilingual embedding model and ONNX Runtime are bundled. Vectors are stored in SQLite and combined with keyword search. No Chroma server, model download or external request is needed.
-- **Summaries without AI credits.** A local script makes an extractive summary. Summarizing with GitHub Copilot is an explicit opt-in.
-- **A small sidebar** to browse and read saved memories. It is a viewer; the value is in the lessons the agent saves and reuses.
-- **Local-only defaults.** Automatic conversation capture, observation by an external AI, cloud sync, telemetry and automatic updates are turned off.
+---
 
-This extension supports Windows x64, macOS (Intel and Apple silicon) and Linux (x64 and arm64), and requires VS Code 1.102 or later. PostgreSQL is not required. Saving and searching work offline, and no model is downloaded at first use.
+## Why Developers Use kioku
+
+- **Turn trial-and-error into permanent rules:** Capture `outcome`, verified `cause`, and a reusable `lesson` so agents stop repeating environment-specific bugs, build flags, and API quirks.
+- **Keep knowledge current:** Saving an intentional replacement can supersede an older memory, and duplicate guards prevent repeated entries for the same topic.
+- **Hand work to the next chat:** `work_state_read` and `work_state_write` preserve active checkout context, status, and task history in local SQLite.
+- **Move lessons between projects:** Export active project lessons to JSONL or Markdown and import them into another checkout with source-fingerprint duplicate protection.
+- **Private and air-gap friendly:** No telemetry, cloud sync, external AI observation, or conversation harvesting. Memories stay in one local SQLite database.
+
+---
+
+## Key Capabilities
+
+- **Structured lesson memory:** `save_memory` records `outcome` (`success`, `failure`, or `mixed`), `cause`, `lesson`, project, title, and replacement metadata.
+- **Smart hybrid search:** SQLite FTS5 keyword candidates are fused with local multilingual embedding candidates from reciprocal rank fusion. Semantic candidates are filtered against the score distribution and exact keyword matches are retained.
+- **Eight compact MCP tools:** `search`, `timeline`, `get_observations`, `save_memory`, `invalidate_memory`, `dumb_search`, `work_state_read`, and `work_state_write` keep the agent interface focused.
+- **Automatic superseding:** The save path recognizes titled revisions and protects existing records with explicit duplicate and supersession behavior.
+- **Local Rust MCP core:** Opt in to the host-native core for direct SQLite reads, hybrid RRF search, invalidation, and Work State support while retaining the existing worker for writes and semantic assistance.
+- **Sidebar curation:** Browse up to 50 memories, search across projects and dates, edit project/cause/lesson fields, invalidate or restore records, and inspect Work State.
+- **Project lessons portable:** Export active lessons to JSONL or Markdown; imports skip records already carrying the same source fingerprint.
+- **Zero-credit summaries:** Generate a local extractive summary at no AI-credit cost, or explicitly opt in to a confirmed GitHub Copilot model summary.
+- **One-command instruction setup:** Inject a marker-delimited kioku block into project or global Copilot instructions, copy a compatible `.mcp.json` entry, and keep the setup inside existing configuration files.
+
+---
+
+## Why SQLite Is the Default
+
+kioku is optimized for a local, single-user workload: small lessons are written or revised over time, then searched and read back one at a time. SQLite fits that pattern without a server process or network hop. Structured records, FTS5 text indexes, and `sqlite-vec` embeddings live in the same local database, so deployment remains a single-file workflow.
+
+The worker configures WAL mode, `synchronous = NORMAL`, foreign keys, in-memory temporary storage, and a 5-second busy timeout. The optional Rust MCP core applies the same busy-timeout and temporary-storage settings, uses read-only SQLite connections for search and Work State reads, and opens a read-write connection only when it performs local invalidation. The bundled Bun MCP path remains the default, with the Rust core enabled explicitly through `KIOKU_RUST_MCP_EXE`.
+
+This is an architectural choice for kioku's current local workload, not a claim that SQLite wins every database benchmark. Performance-sensitive changes are evaluated against actual memory counts, search latency, startup time, and lock contention before replacing the storage engine or adding another index. In the 0.8.0 benchmark, `temp_store=MEMORY` improved the measured insertion and FTS workload; `mmap_size`, a larger page cache, and USearch HNSW did not meet the adoption threshold.
+
+See [the full architecture discussion](docs/gemini-db-architecture-2026-11-21.md) and [the reproducible 0.8.0 benchmark results](docs/performance-benchmark-2026-11-22.md).
+
+---
 
 ## Install
 
-1. Install from the Marketplace (`ext install ShunsukeF.kioku-search`), or select "Install from VSIX..." in the Extensions view and choose the VSIX for your platform, for example `kioku-search-win32-x64-0.4.3.vsix`. If an earlier version with the same extension ID exists, it will be updated in place.
-2. Reload VS Code if prompted, and open a trusted workspace folder.
-3. Open the kioku brain icon on the activity bar. If the worker is not running, the bundled version starts. On first launch, wait for database initialization. A memory count of 0 is normal for a new user.
-4. In Copilot Chat's MCP list, start "kioku (local)" and allow access in the VS Code confirmation prompt.
+1. Install from the **VS Code Marketplace** (`ext install ShunsukeF.kioku-search`), or open the Extensions view, select **Install from VSIX...**, and choose the build for your platform, for example `kioku-search-win32-x64-0.8.0.vsix`.
+2. Reload VS Code if prompted and open a trusted workspace folder.
+3. Click the **kioku** brain icon in the Activity Bar. On first launch, database initialization may take a moment; a memory count of `0` is normal.
+4. Enable **`kioku (local)`** in Copilot Chat's MCP tool list and approve tool access when prompted.
 
-If you already have a manually configured kioku MCP server, disable the manual configuration before using the bundled version. Do not register the same functionality twice. The extension never deletes or overwrites existing MCP configuration files.
+> If you previously configured a standalone `kioku` MCP entry manually, disable it to avoid duplicate tool registration. kioku never overwrites or deletes your existing configuration files.
 
-## Language
+Requires VS Code 1.102 or later. Supports Windows x64, macOS arm64/x64, and Linux x64/arm64.
 
-The sidebar UI is English by default and can be switched to Japanese using the language selector in the sidebar header or the `kioku.language` configuration setting. VS Code dialogs (such as Copilot model selection and send confirmation) remain in English.
+---
 
-## Saving and searching
+## Usage & Workflow
 
-Prompt Copilot Chat explicitly: "Save this decision with kioku save_memory". Do not include confidential information or credentials in memories. The chat interaction itself that invokes the MCP tool is subject to your Copilot terms and plan.
+### Saving & Searching Lessons
 
-When saving successful or failed work, specify the `save_memory` fields `outcome` (`success`, `failure`, or `mixed`), `cause` (reason for success or failure), and `lesson` (what to do or avoid next time, and under what conditions). Memories with a `lesson` can be filtered in `search` by setting `concepts` to `lesson`.
+Prompt Copilot Chat naturally or explicitly:
 
-Use the kioku brain icon to search by keywords, project, start date, and end date. Up to 50 results are displayed; selecting a result shows the body and facts. The view also displays connection status and the total memory count. There is no delete action in the UI.
+- `Save this fix as a lesson in kioku so we do not hit this error again.`
+- `Search kioku for past lessons related to SQLite migrations.`
 
-The bundled version uses explicit saving and SQLite search. It combines keyword search with semantic search using vectors stored in SQLite, computing similarity inside the worker. A multilingual embedding model (including Japanese support) runs locally on your PC without sending search queries or memories to external servers. An index is built from stored memories on the first search; thereafter, embeddings are recalculated only for memories whose content has changed. Initial search indexing time depends on the number of memories.
+Each reusable memory should contain:
 
-Automatic conversation harvesting, observation by external AI, Chroma, cloud synchronization, telemetry, and automatic updates are disabled at startup. This extension does not automatically record complete chat transcripts. Authentication and code analysis designed for shared servers are not used. The header displays the extension version; the internal worker version can be checked in the connection tooltip.
+- **`outcome`:** `success`, `failure`, or `mixed`
+- **`cause`:** The verified reason for the result
+- **`lesson`:** The concrete rule to apply or avoid next time
+- **`project`:** The project or scope where the lesson applies
 
-## Summaries
+Search with concrete names or a short question. Hybrid search combines exact FTS matches with semantic candidates, while an empty result is not proof that no relevant memory exists.
 
-Copilot summaries are off by default. When off, clicking "Summarize with script" creates an extractive summary locally on your PC from the original text. It displays the title, subtitle, up to 6 facts, and the beginning of the body, indicating if content was omitted. This operation involves no external network transmission and consumes no AI credits.
+Use `invalidate_memory({ id, reason, replacedBy })` for obsolete or incorrect observations. Invalidated memories remain in storage but leave search results. Set `restore: true` to make a memory searchable again.
 
-When on, clicking "Summarize with Copilot" after selecting a memory proceeds to an explicit confirmation prompt and model selection. Only the title, subtitle, body, and facts of the selected memory are sent. Switching the setting on sends nothing. The summary result is displayed temporarily and does not modify the original memory.
+### Agent Instructions & Handoffs
 
-Copilot sign-in, available models, usage quotas, and organization policies follow your environment. If no model is available, an error is shown without falling back to another service. Switching Copilot off cancels an in-progress summary, but already transmitted data cannot be recalled. The statement that script summaries consume no credits applies strictly to local script summaries within this extension.
+Use **kioku: Inject Copilot Instructions** to add a compact memory workflow to project or global Copilot instructions. The sidebar's Work State section reads active checkout context and can close open entries by appending `done` records without deleting history.
 
-## Data and existing environment
+### Sidebar Curation
 
-The default storage directory is `%USERPROFILE%\.claude-mem`. Existing `CLAUDE_MEM_DATA_DIR` environment variables or paths defined in existing configuration files are respected. If an existing database is found, it is reused; if none exists, an empty database is created on first startup. The distribution package contains no user databases, memories, or credentials. Updating, reinstalling, or uninstalling the extension does not delete personal data. Memories are not automatically transferred to other PCs.
+Open the **kioku** sidebar to:
 
-The worker only communicates over loopback addresses on the local machine. The port is determined from existing settings and worker port calculation logic. If necessary, specify a loopback HTTP URL in the VS Code setting `kioku.workerUrl`. Non-loopback URLs, credentials embedded in URLs, and redirects are rejected.
+- Search and filter up to 50 memories by keyword, project, or date range.
+- Edit project, cause, and lesson fields for the selected memory.
+- Invalidate or restore outdated records.
+- Inspect Work State and connection status.
+- Switch between English and Japanese with the header selector or `kioku.language`.
+- Export and import project lessons.
+- Generate local or Copilot-backed summaries.
 
-If a worker of the same version supporting local semantic search is already running, it is reused. Configuration files specific to that worker are not modified by this extension. A shared worker is not terminated when VS Code exits.
+---
 
-If a worker with a mismatched version or a different service responds, it is not stopped or replaced; instead, an error is reported. Stop the older worker after identifying its caller, then retry. Back up your existing database before opening it with a new version for the first time. The worker performs any necessary database migrations automatically. If startup fails, check the `logs` folder in the data directory.
+## Summaries & Privacy
 
-## Build
+- **Local script summaries are the default:** They are extractive, consume no AI credits, and send no text outside your PC.
+- **Copilot summaries require opt-in:** Switching the setting on sends nothing. Selecting a memory and choosing the Copilot summary opens an explicit confirmation and model-selection step.
+- **Only selected content is sent:** The selected title, subtitle, body, and facts are included in an opt-in Copilot summary.
+- **No automatic capture:** Conversation harvesting, external AI observation, cloud sync, telemetry, and automatic updates are disabled.
+- **No external search services:** The bundled multilingual embedding model runs locally through ONNX Runtime.
 
-On Windows x64, prepare the worker dependencies, extension devDependencies, and Google Chrome. Building requires Node.js 24 or later, Bun, and PowerShell 7. These are not needed after distributing the package to users. Network access is used only during the build to fetch pinned model files and licenses. Model and tokenizer files are verified by size and SHA-256 hash. Runtime model loading is restricted strictly to local files.
+---
+
+## Data, Security & Existing Environments
+
+- **Local storage:** Memories use `.claude-mem` in your home directory (`%USERPROFILE%\.claude-mem` on Windows or `~/.claude-mem` on macOS/Linux), or `CLAUDE_MEM_DATA_DIR` when configured.
+- **Existing databases are reused:** Updating, reinstalling, or uninstalling kioku does not delete personal data. Memories are not automatically transferred to another PC.
+- **Loopback worker communication:** The worker accepts only local loopback HTTP addresses. `kioku.workerUrl` must remain loopback-only.
+- **Existing worker reuse:** A compatible running worker is reused. Incompatible or mismatched services are not stopped or replaced.
+- **Automatic database migration:** The worker migrates an existing database when needed. Back up the database before upgrading across major versions.
+- **Troubleshooting:** Startup and worker logs are stored in the `logs` folder of the data directory.
+
+Do not store credentials or confidential data in memories. Chat text sent to an MCP tool is also subject to your GitHub Copilot terms and plan.
+
+---
+
+## Building from Source
+
+Building from source requires Rust/Cargo, Node.js 24+, and Bun. End users do not need these tools.
 
 ```powershell
 npm run typecheck:root
@@ -96,4 +164,14 @@ npm --prefix vscode-extension test
 node vscode-extension/test/integrated-smoke.mjs
 ```
 
-Run `vsce package --target win32-x64 --no-dependencies --allow-missing-repository` in the extension folder. SHA-256 hashes of bundled runtime files are listed in `runtime/integrity.json`; licenses and notices are included in `runtime/licenses` and `runtime/THIRD-PARTY-NOTICES.txt`. The license for the Lucide toolbar icons is in `media/lucide-license.txt`.
+Package the extension for each target with:
+
+```powershell
+vsce package --target <target> --no-dependencies --allow-missing-repository
+```
+
+Supported targets are `win32-x64`, `darwin-x64`, `darwin-arm64`, `linux-x64`, and `linux-arm64`. Network access is used during the build to fetch pinned model files and licenses. SHA-256 hashes are verified against `runtime/integrity.json`; bundled licenses are in `runtime/licenses` and `runtime/THIRD-PARTY-NOTICES.txt`.
+
+### Optional Rust MCP Core
+
+The staged Rust MCP core can be built with `npm run build:rust-mcp`. Set `KIOKU_RUST_MCP_EXE` to the generated host executable before starting VS Code. It reads local SQLite data for search, timeline, observations, invalidation, and Work State, and falls back to local FTS5 when the existing worker is unavailable. It is an opt-in core; the bundled Bun MCP path remains unchanged by default.

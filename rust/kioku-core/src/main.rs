@@ -1,5 +1,6 @@
 mod mcp;
 mod search;
+mod sqlite;
 mod work_state;
 
 use std::path::PathBuf;

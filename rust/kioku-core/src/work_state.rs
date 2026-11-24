@@ -3,11 +3,16 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
+use rusqlite::params_from_iter;
 use rusqlite::types::Value as SqlValue;
-use rusqlite::{Connection, OpenFlags, params_from_iter};
 use serde::de::{IgnoredAny, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value, json};
+
+use crate::sqlite::open_read_only;
+
+#[cfg(test)]
+use rusqlite::Connection;
 
 const FIELD_ORDER_KEY: &str = "\0kioku_field_order";
 const STALE_AFTER_MS: i64 = 14 * 24 * 60 * 60 * 1_000;
@@ -101,11 +106,7 @@ fn read_entries(
     local_device_id: &str,
     scope_projects: &[&str],
 ) -> Result<Vec<Value>> {
-    let connection = Connection::open_with_flags(
-        database,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .with_context(|| format!("Cannot open kioku database at {}", database.display()))?;
+    let connection = open_read_only(database)?;
     let table_exists = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'work_state_entries')",
         [],
@@ -724,6 +725,57 @@ mod tests {
         .expect("read closed work state");
         assert!(closed.starts_with("- release\n  - [done] ship,"));
         assert!(!closed.contains("private"));
+    }
+
+    #[test]
+    fn reads_work_state_during_a_concurrent_wal_write() {
+        let directory = tempfile::tempdir().expect("temporary database directory");
+        let database = directory.path().join("claude-mem.db");
+        let writer = Connection::open(&database).expect("open fixture database");
+        writer
+            .execute_batch(
+                r#"
+                PRAGMA journal_mode = WAL;
+                CREATE TABLE work_state_entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project TEXT NOT NULL,
+                    list_name TEXT NOT NULL,
+                    fields TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    created_at_epoch INTEGER NOT NULL,
+                    origin_device_id TEXT,
+                    origin_local_id TEXT
+                );
+                INSERT INTO work_state_entries
+                    (project, list_name, fields, created_at, created_at_epoch)
+                VALUES
+                    ('kioku', 'release', '{"task":"published","status":"doing"}', '2026-11-20', 1000);
+                BEGIN IMMEDIATE;
+                INSERT INTO work_state_entries
+                    (project, list_name, fields, created_at, created_at_epoch)
+                VALUES
+                    ('kioku', 'release', '{"task":"pending","status":"doing"}', '2026-11-21', 2000);
+                "#,
+            )
+            .expect("hold concurrent WAL writer");
+
+        let output = read(
+            &database,
+            &json!({"list":"release","includeClosed":false,"includeStale":true}),
+            &json!({
+                "primary":"kioku",
+                "projects":["kioku"],
+                "readProjects":["kioku"],
+                "localDeviceId":""
+            }),
+        )
+        .expect("read committed work state while writer is open");
+        assert!(output.contains("published"));
+        assert!(!output.contains("pending"));
+
+        writer
+            .execute_batch("ROLLBACK;")
+            .expect("release writer lock");
     }
 
     #[test]

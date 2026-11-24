@@ -1,5 +1,5 @@
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::{search, work_state};
 
-pub fn serve(database: &PathBuf, worker_url: &str) -> Result<()> {
+pub fn serve(database: &Path, worker_url: &str) -> Result<()> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut output = stdout.lock();
@@ -33,7 +33,7 @@ pub fn serve(database: &PathBuf, worker_url: &str) -> Result<()> {
     Ok(())
 }
 
-fn handle_request(database: &PathBuf, worker_url: &str, request: Value) -> Result<Option<Value>> {
+fn handle_request(database: &Path, worker_url: &str, request: Value) -> Result<Option<Value>> {
     let id = request.get("id").cloned();
     let method = request
         .get("method")
@@ -113,7 +113,7 @@ fn tool(name: &str, description: &str, input_schema: Value) -> Value {
 }
 
 fn call_tool(
-    database: &PathBuf,
+    database: &Path,
     worker_url: &str,
     params: &Value,
 ) -> std::result::Result<Value, Value> {
@@ -409,7 +409,7 @@ mod tests {
     #[test]
     fn initializes_with_the_requested_protocol() {
         let response = handle_request(
-            &PathBuf::from("unused.db"),
+            Path::new("unused.db"),
             "http://127.0.0.1:37777",
             json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}),
         ).expect("initialize request").expect("initialize response");
@@ -420,7 +420,7 @@ mod tests {
     #[test]
     fn advertises_the_staged_eight_tool_contract() {
         let response = handle_request(
-            &PathBuf::from("unused.db"),
+            Path::new("unused.db"),
             "http://127.0.0.1:37777",
             json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}),
         )
@@ -486,7 +486,7 @@ mod tests {
     #[test]
     fn notifications_do_not_receive_responses() {
         let response = handle_request(
-            &PathBuf::from("unused.db"),
+            Path::new("unused.db"),
             "http://127.0.0.1:37777",
             json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
         )
