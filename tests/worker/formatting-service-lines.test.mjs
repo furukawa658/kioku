@@ -51,3 +51,11 @@ test('timeline keeps the complete multiline observation title and anchor in one 
   assert.match(rows[0], /\| ~\d+ \|$/);
   assert.equal(stored.title, observation.title);
 });
+
+test('search rows show the match basis from searchDiagnostics', () => {
+  const diag = { z: 2.34, keywordMatch: true, similarity: 0.8 };
+  assert.ok(formatter.formatObservationSearchRow({ ...observation, searchDiagnostics: diag }, '').row.endsWith('| z2.3 kw |'));
+  assert.ok(formatter.formatSessionSearchRow({ ...session, searchDiagnostics: { ...diag, keywordMatch: false } }, '').row.endsWith('| z2.3 |'));
+  assert.ok(formatter.formatUserPromptSearchRow(prompt, '').row.endsWith('| - |'));
+  assert.match(formatter.formatSearchTableHeader(), /\| Read \| Match \|/);
+});

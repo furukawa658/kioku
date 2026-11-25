@@ -17,6 +17,14 @@ export function estimateObservationReadTokens(obs: Pick<ObservationSearchResult,
   return Math.ceil(size / CHARS_PER_TOKEN_ESTIMATE);
 }
 
+/** 検索一覧の一致根拠。z=類似度の偏差値、kw=キーワード一致、-=根拠なし。 */
+function formatMatch(row: unknown): string {
+  const d = (row as { searchDiagnostics?: { z: number | null; keywordMatch: boolean } }).searchDiagnostics;
+  if (!d) return '-';
+  const parts = [d.z === null ? '' : `z${d.z.toFixed(1)}`, d.keywordMatch ? 'kw' : ''].filter(Boolean);
+  return parts.join(' ') || '-';
+}
+
 export class FormattingService {
   formatSearchTips(): string {
     return `\n---
@@ -75,8 +83,8 @@ Tips:
   }
 
   formatSearchTableHeader(): string {
-    return `| ID | Time | T | Title | Read |
-|----|------|---|-------|------|`;
+    return `| ID | Time | T | Title | Read | Match |
+|----|------|---|-------|------|-------|`;
   }
 
   formatObservationSearchRow(obs: ObservationSearchResult, lastTime: string): { row: string; time: string } {
@@ -89,7 +97,7 @@ Tips:
     const timeDisplay = time === lastTime ? '″' : time;
 
     return {
-      row: `| ${id} | ${timeDisplay} | ${icon} | ${title} | ~${readTokens} |`,
+      row: `| ${id} | ${timeDisplay} | ${icon} | ${title} | ~${readTokens} | ${formatMatch(obs)} |`,
       time
     };
   }
@@ -103,7 +111,7 @@ Tips:
     const timeDisplay = time === lastTime ? '″' : time;
 
     return {
-      row: `| ${id} | ${timeDisplay} | ${icon} | ${title} | - |`,
+      row: `| ${id} | ${timeDisplay} | ${icon} | ${title} | - | ${formatMatch(session)} |`,
       time
     };
   }
@@ -120,7 +128,7 @@ Tips:
     const timeDisplay = time === lastTime ? '″' : time;
 
     return {
-      row: `| ${id} | ${timeDisplay} | ${icon} | ${title} | - |`,
+      row: `| ${id} | ${timeDisplay} | ${icon} | ${title} | - | ${formatMatch(prompt)} |`,
       time
     };
   }
