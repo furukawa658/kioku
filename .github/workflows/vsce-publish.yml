@@ -1,6 +1,7 @@
 name: Publish VS Code extension
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'vscode-v*'
